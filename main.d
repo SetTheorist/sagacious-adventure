@@ -273,6 +273,8 @@ public:
             case 'm': a = action(action_type.move, e.z + xyl.se); break;
             case '>': a = action(action_type.move, e.z + xyl.d ); break;
             case '<': a = action(action_type.move, e.z + xyl.u ); break;
+            case 'w': a = action(action_type.wield); break;
+            case 'e': a = action(action_type.unwield); break;
             default: break;
             }
             return a;
@@ -414,9 +416,13 @@ public:
         int ny = 19;
         d = new dungeon(gen_rng, nl, nr, nx, ny);
 
+        gameobj arm = new gameobj()
+            .add(new display_property('/', "right arm"), 0)
+            .add(new body_part_property("arm"), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
-            .add(new body_property(8, 8, tick(tick.tps()), null), 10);
+            .add(new inventory_property(), 2)
+            .add(new body_property(8, 8, tick(tick.tps()), [arm]), 10);
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
         p.wielded = glaive.clone();
         monsters = [p];
@@ -506,9 +512,7 @@ public:
         case action_type.attack_melee:
             foreach (m; monsters) {
                 if (m.z == a.target) {
-                    message mess = new message("ComputeMeleeDamage");
-                    e.wielded.handle_message(mess);
-                    int dam = mess["MeleeDamage"].i;
+                    int dam = e.wielded.handle_message(new message("ComputeMeleeDamage"))["MeleeDamage"].i;
                     message mess2 = new message("TakeDamage");
                     mess2["Damage"] = dam;
                     m.self.handle_message(mess2);

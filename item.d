@@ -63,12 +63,12 @@ class gameobj {
         return mess[field_name];
     }
 
-    ref message handle_message(ref message m) {
+    MT handle_message(MT : message)(MT m) {
         m._sender = this;
         foreach (p; _properties)
             if ((m = p.handle_message(m)) is null)
                 break;
-        return m;
+        return cast(MT)m;
     }
 }
 class message {
@@ -123,7 +123,7 @@ class property {
     private string _id;
     int _priority;
     this(string id) { _id = id; _priority = 0; }
-    ref message handle_message(ref message m) { return m; }
+    message handle_message(message m) { return m; }
     property clone() { return new property(_id); }
 }
 class display_property : property {
@@ -134,7 +134,7 @@ class display_property : property {
         _symbol = symbol;
         _name = name;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetSymbol":
             m["Symbol"] = _symbol;
@@ -163,7 +163,7 @@ class physics_property : property {
         _y = y;
         _l = l;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetWeight":
             m["Weight"] = _weight;
@@ -193,7 +193,7 @@ class wieldable_property : property {
         _min_str = min_str;
         _min_dex = min_dex;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetSize":
             m["Size"].i = _size;
@@ -214,7 +214,7 @@ class cursed_property : property {
         super("cursed");
         _known = known;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetDisplayName":
             if (_known)
@@ -253,7 +253,7 @@ class body_property : property {
         _speed = speed;
         _body_parts = body_parts;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetHP":
             m["HP"] = _hp;
@@ -298,15 +298,33 @@ class body_part_property : property {
         _worn = worn;
         _wielded = wielded;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
+        case "GetDisplayName":
+            string worn = null, wielded = null;
+            if (_worn !is null)
+                worn = format(" wearing %s", _worn.get("DisplayName").s);
+            if (_wielded !is null)
+                wielded = format(" wielding %s", _wielded.get("DisplayName").s);
+            m["DisplayName"]= format("%s (%s)%s%s", m["DisplayName"], _type, (worn is null) ? "" : worn, (wielded is null) ? "" : wielded);
+            break;
         case "Donning":
+            // TODO: check if actually wearable...
+            m["Doffed"] = _worn;
+            _worn = m["Donned"].g;
             break;
         case "Doffing":
+            m["Doffed"] = _worn;
+            _worn = null;
             break;
         case "Wielding":
+            // TODO: check if actually wieldable...
+            m["Unwielded"] = _wielded;
+            _wielded = m["Wielded"].g;
             break;
         case "Unwielding":
+            m["Unwielded"] = _wielded;
+            _wielded = null;
             break;
         default: break;
         }
@@ -322,7 +340,7 @@ class wearable_property : property {
         _location = location;
         _effect = effect;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "Donning":
             if (_effect) {
@@ -340,7 +358,7 @@ class wearable_property : property {
         }
         return m;
     }
-    override property clone() { return new wearable_property(_location, _effect); }
+    override property clone() { return new wearable_property(_location, _effect.clone()); }
 }
 class damage_effect_property : property {
     int _bonus;
@@ -348,7 +366,7 @@ class damage_effect_property : property {
         super("damage_effect");
         _bonus = bonus;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "ComputeMeleeDamage":
             m["MeleeDamage"] = m["MeleeDamage"].i + _bonus;
@@ -368,7 +386,7 @@ class weapon_property : property {
         super("weapon");
         _damage = damage;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetDisplayName":
             m["DisplayName"] = format("%s {%s}", m["DisplayName"].s, _damage);
@@ -388,14 +406,17 @@ class ench_property : property {
         super("ench");
         _ench = ench;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetShortDisplayName":
         case "GetDisplayName":
             if (_ench != 0) m["DisplayName"] = format("%+d %s", _ench, m["DisplayName"].s);
             break;
         case "ComputeMeleeDamage":
-            if (_ench != 0) m["MeleeDamage"] = m["MeleeDamage"].i + _ench;
+            if (_ench != 0) m["MeleeDamage"].i += _ench;
+            break;
+        case "ComputeMissileDamage":
+            if (_ench != 0) m["MissileDamage"].i += _ench;
             break;
         case "GainLevel":
             ++_ench;
@@ -422,7 +443,7 @@ class xp_property : property {
         _next = next;
         _level = level;
     }
-    override ref message handle_message(ref message m) {
+    override message handle_message(message m) {
         switch (m.id) {
         case "GetDisplayName":
             m["DisplayName"] = m["DisplayName"].s ~ format(" (XP:%d/%d L:%d)", _xp, _next, _level);
@@ -447,107 +468,20 @@ class xp_property : property {
     override property clone() { return new xp_property(_xp, _next, _level); }
 }
 
-/*
-// ECS system (v2)
-struct item {
-    ulong id;
-    static ulong _next = 1L;
-    static item next() {
-        return item(_next++);
+class inventory_property : property {
+    gameobj[] _items;
+    this(gameobj[] items=null) {
+        super("inventory");
+        _items = items;
     }
-    static item clone(item e) {
-        item it = next();
-        return it;
-    }
-}
-
-abstract class icomponent {
-private:
-    string _name;
-public:
-    static icomponent[] components;
-    this(string name) { _name = name; components ~= this; }
-
-    void add(const item e);
-    void clone(const item e, const item f);
-    void remove(const item e);
-    bool has(const item e) const;
-    bool set_string(const item e, string s);
-    string get_string(const item e) const;
-    string get_raw_string(const item e) const;
-    int opApply(int delegate(const ref item) dg) const;
-    bool remove_processor(string key);
-}
-
-class component(T) : icomponent {
-public:
-    alias processor = bool delegate(item e, const component!T comp, ref T value);
-private:
-    struct pp { string key; int priority; processor proc; }
-    T[item] _values;
-    pp[] _processors;
-public:
-    this(string name) {
-        super(name);
-    }
-    bool set(const item e, const T val) {
-        _values[e] = val;
-        return true;
-    }
-    override bool set_string(const item e, string val_string) {
-        _values[e] = to!T(val_string);
-        return true;
-    }
-    override string get_string(const item e) const {
-        return to!string(get(e));
-    }
-    override string get_raw_string(const item e) const {
-        return to!string(_values[e]);
-    }
-    override void add(const item e) {
-        T t;
-        _values[e] = t;
-    }
-    override void clone(const item e, const item f) {
-        _values[e] = _values[f];
-    }
-    override void remove(const item e) {
-        _values.remove(e);
-    }
-    override bool has(const item e) const {
-        return (e in _values) != null;
-    }
-    override int opApply(int delegate(const ref item) dg) const {
-        int result = 0;
-        foreach (e; _values.keys)
-            if ((result = dg(e))!=0)
-                break;
-        return result;
-    }
-    T get_raw(const item e) const {
-        return _values[e];
-    }
-    T get(const item e) const {
-        T v = _values[e];
-        foreach (p; _processors)
-            if (p.proc(e, this, v))
-                break;
-        return v;
-    }
-    bool add_processor(string key, int priority, processor proc) {
-        _processors ~= pp(key, priority, proc);
-        sort!((a,b) => a.priority>b.priority)(_processors);
-        return true;
-    }
-    override bool remove_processor(string key) {
-        for (int i=0; i<_processors.length; ++i) {
-            if (_processors[i].key == key) {
-                _processors[i..$-1] = _processors[i+1..$];
-                --_processors.length;
-                return true;
-            }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetShortDisplayName":
+        case "GetDisplayName":
+            break;
+        default: break;
         }
-        return false;
+        return m;
     }
+    override property clone() { return new inventory_property(_items.dup()); }
 }
-*/
