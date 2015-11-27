@@ -1,3 +1,4 @@
+//import core.thread;
 import std.algorithm;
 import std.conv;
 import std.math;
@@ -5,7 +6,16 @@ import std.random;
 import std.stdio;
 import std.string;
 
-import terminal;
+immutable bool use_sdl = true;
+static if (use_sdl) {
+    import derelict.sdl2.sdl;
+    //import derelict.sdl2.image;
+    //import derelict.sdl2.mixer;
+    //import derelict.sdl2.ttf;
+    //import derelict.sdl2.net;
+} else {
+    import terminal;
+}
 
 import item;
 import map;
@@ -16,6 +26,61 @@ import rng;
 import ui;
 import util;
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static if (use_sdl)
+SDL_Texture* LoadSprite(string file, SDL_Renderer *renderer, out int texture_w, out int texture_h)
+{
+    SDL_Surface* surf;
+    SDL_Texture* texture;
+
+    /* Load the texture image */
+    surf = SDL_LoadBMP(toStringz(file));
+    if (surf == null) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't load %s: %s\n", toStringz(file), SDL_GetError());
+        return null;
+    }
+    texture_w = surf.w;
+    texture_h = surf.h;
+
+    /* Set transparent pixel as the pixel at (0,0) */
+    if (surf.format.palette) {
+        SDL_SetColorKey(surf, SDL_TRUE, *cast(Uint8 *) surf.pixels);
+    } else {
+        switch (surf.format.BitsPerPixel) {
+        case 15:
+            SDL_SetColorKey(surf, SDL_TRUE, (*cast(Uint16 *) surf.pixels) & 0x00007FFF);
+            break;
+        case 16:
+            SDL_SetColorKey(surf, SDL_TRUE, *cast(Uint16 *) surf.pixels);
+            break;
+        case 24:
+            SDL_SetColorKey(surf, SDL_TRUE, (*cast(Uint32 *) surf.pixels) & 0x00FFFFFF);
+            break;
+        case 32:
+            SDL_SetColorKey(surf, SDL_TRUE, *cast(Uint32 *) surf.pixels);
+            break;
+        default:
+            break;
+        }
+    }
+
+    /* Create textures from the image */
+    texture = SDL_CreateTextureFromSurface(renderer, surf);
+    if (!texture) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't create texture: %s\n", SDL_GetError());
+        SDL_FreeSurface(surf);
+        return null;
+    }
+    SDL_FreeSurface(surf);
+
+    return texture;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 abstract class actor {
@@ -289,7 +354,18 @@ public:
     tick    play_clock = tick(0);
     tick    ui_clock = tick(0);
 
-    Terminal terminal;
+    static if (use_sdl) {
+        immutable int WINDOW_WIDTH  = 800;
+        immutable int WINDOW_HEIGHT = 600;
+        SDL_Texture *texture;
+        int texture_w, texture_h;
+
+        SDL_Window *window;
+        SDL_Renderer *renderer;
+
+    } else {
+        Terminal terminal;
+    }
     char[] input_queue;
 
     dungeon d;
@@ -312,7 +388,14 @@ public:
         play_rng = new rng(seed);
         ui_rng = new rng(seed);
 
-        terminal = Terminal(ConsoleOutputType.cellular);
+        static if (use_sdl) {
+            if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
+                throw new Throwable("Unable to create SDL window");
+            if ((texture = LoadSprite("curses_square_16x16.bmp", renderer, texture_w, texture_h)) is null)
+                throw new Throwable("Unable to load texture");
+        } else {
+            terminal = Terminal(ConsoleOutputType.cellular);
+        }
 
         int nl = 10;
         int nr = 2;
@@ -512,20 +595,38 @@ ConsoleWindow global_console = void;
 
 int main(string[] argv)
 {
-    version(Windows) {
-        _STI_conio();
-        scope(exit) _STD_conio();
+    static if (use_sdl) {
+        // Load the SDL 2 libraries
+        DerelictSDL2.load();
+        //DerelictSDL2Image.load();
+        //DerelictSDL2Mixer.load();
+        //DerelictSDL2ttf.load();
+        //DerelictSDL2Net.load();
+        scope(exit) SDL_Quit();
+
+	    /* Enable standard application logging */
+        SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO);
+    } else {
+        version(Windows) {
+            _STI_conio();
+            scope(exit) _STD_conio();
+        }
+        version(Posix) {
+            void* old_ui_state = setup_ui_state();
+            scope(exit) restore_ui_state(old_ui_state);
+        }
     }
-    version(Posix) {
-        void* old_ui_state = setup_ui_state();
-        scope(exit) restore_ui_state(old_ui_state);
-    }
+
     world w = global_world = new world(13);
 
-    w.terminal.hideCursor();
-    w.terminal.setTitle("Rogue-gamesh");
-    //auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw);
-    int[] size = w.terminal.getSize();
+    static if (use_sdl) {
+        int[] size = [800/16, 600/16];
+    } else {
+        w.terminal.hideCursor();
+        w.terminal.setTitle("Rogue-gamesh");
+        int[] size = w.terminal.getSize();
+    }
+
     WindowManager wm = new WindowManager(size[0], size[1]-1);
     Window w_map = new Window(0, size[1]-w.d.ny-2, 0, w.d.nx, w.d.ny);
     wm.add(w_map);
@@ -535,7 +636,6 @@ int main(string[] argv)
     wm.add(w_player);
     global_console = new ConsoleWindow(0, 0, 0, size[0]-1, 5);
     wm.add(global_console);
-
 
     int target_fps = 60;
     tick target_ticks = tick(tick.tps() / target_fps);
@@ -636,28 +736,51 @@ int main(string[] argv)
                             w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
                      Color.white, Color.black);
         w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
-        wm.refresh(w.terminal);
+        static if (use_sdl) {
+            wm.refresh(w.window, w.renderer, w.texture);
+        } else {
+            wm.refresh(w.terminal);
+            w.terminal.flush();
+        }
         //////// ////////
-        /*
-        {
-            int k = 1;
-            foreach (m; w.monsters) {
-                if (m.z.l == w.p.z.l) {
-                    w.terminal.moveTo(w.d.nx+2, k);
-                    w.terminal.writef("%c (%2d,%2d) %d/%d", m.symbol, m.z.x, m.z.y, m.hp, m.hp_max);
-                    ++k;
+
+        static if (use_sdl) {
+            SDL_Event event;
+            /* Check for events */
+            while (SDL_PollEvent(&event)) {
+                switch (event.type) {
+                case SDL_QUIT:
+                    w.running_flag = 0;
+                    break;
+                case SDL_KEYDOWN:
+                    writefln("%s %s='%s'", event.key, event.key.keysym.sym, cast(char)event.key.keysym.sym);
+                    switch (event.key.keysym.sym) {
+                        case 'q': w.running_flag = 0; break;
+                        default:
+                            // HACK
+                            if (event.key.keysym.sym >= 32) {
+                                char ch = cast(char)event.key.keysym.sym;
+                                if (ch=='.' && ((event.key.keysym.mod&KMOD_LSHIFT)||(event.key.keysym.mod&KMOD_RSHIFT)))
+                                    ch = '>';
+                                if (ch==',' && ((event.key.keysym.mod&KMOD_LSHIFT)||(event.key.keysym.mod&KMOD_RSHIFT)))
+                                    ch = '<';
+                                w.input_queue ~= ch;
+                            }
+                            break;
+                    }
+                    break;
+                default:
+                    break;
                 }
             }
-        }
-        */
-        w.terminal.flush();
-
-        if (keyReady()) { 
-            char ch;
-            switch(ch=cast(char)getKey()) {
-            case 'q': w.running_flag = 0; break;
-            case 'c': w.terminal.reset(); w.terminal.clear(); break;
-            default: w.input_queue ~= ch; break;
+        } else {
+            if (keyReady()) { 
+                char ch;
+                switch(ch=cast(char)getKey()) {
+                case 'q': w.running_flag = 0; break;
+                case 'c': w.terminal.reset(); w.terminal.clear(); break;
+                default: w.input_queue ~= ch; break;
+                }
             }
         }
     }
@@ -666,9 +789,20 @@ int main(string[] argv)
     w_dead.set(0,0,"YOU DEAD!!!!!", Color.red|Bright, Color.white);
     w_dead.set(0,1,cast(string)w.input_queue, Color.white, Color.red);
     wm.add(w_dead);
-    wm.refresh(w.terminal);
+    static if (use_sdl) {
+        wm.refresh(w.window, w.renderer, w.texture);
+    } else {
+        wm.refresh(w.terminal);
+    }
 
-    while (getKey()!=' ') {}
+    if (use_sdl) {
+        SDL_Event event;
+        while (SDL_WaitEvent(&event))
+            if (event.type == SDL_QUIT || event.type == SDL_KEYDOWN)
+                break;
+    } else {
+        while (getKey()!=' ') {}
+    }
     return 0;
 }
 

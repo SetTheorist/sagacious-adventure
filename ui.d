@@ -2,7 +2,21 @@ module ui;
 
 import std.algorithm;
 
-import terminal;
+import main : use_sdl;
+
+static if (use_sdl) {
+    import derelict.sdl2.sdl;
+    //import derelict.sdl2.image;
+    //import derelict.sdl2.mixer;
+    //import derelict.sdl2.ttf;
+    //import derelict.sdl2.net;
+    enum Color {
+        black, red, blue, yellow, green, white
+    };
+    immutable int Bright = 0x08;
+} else {
+    import terminal;
+}
 
 class Window {
 private:
@@ -106,37 +120,66 @@ public:
             }
         }
     }
-    void refresh(ref Terminal t) {
-        foreach (w; windows) {
-            for (int j=0; j<w.ny; ++j) {
-                for (int i=0; i<w.nx; ++i) {
-                    ch[i+w.x][j+w.y] = w.ch[i][j];
-                    fg[i+w.x][j+w.y] = w.fg[i][j];
-                    bg[i+w.x][j+w.y] = w.bg[i][j];
+    static if (use_sdl) {
+        void refresh(SDL_Window* window, SDL_Renderer* renderer, SDL_Texture* texture) {
+            // layer sub-window data
+            foreach (w; windows) {
+                for (int j=0; j<w.ny; ++j) {
+                    for (int i=0; i<w.nx; ++i) {
+                        ch[i+w.x][j+w.y] = w.ch[i][j];
+                        fg[i+w.x][j+w.y] = w.fg[i][j];
+                        bg[i+w.x][j+w.y] = w.bg[i][j];
+                    }
                 }
             }
-        }
-
-        for (int i=0; i<nx; ++i)
-            for (int j=0; j<ny; ++j)
-                dirty[i][j] = (ch[i][j]!=old_ch[i][j]) || (fg[i][j]!=old_fg[i][j]) || (bg[i][j]!=old_bg[i][j]);
-
-        for (int i=0; i<nx; ++i) {
-            for (int j=0; j<ny; ++j) {
-                if (dirty[i][j]) {
-                    t.moveTo(i, ny-1-j);
-                    t.color(fg[i][j], bg[i][j]);
-                    t.write(ch[i][j]);
+            // update
+            SDL_SetRenderDrawColor(renderer, 0x8B, 0x7D, 0x7B, 0xFF);
+            SDL_RenderClear(renderer);
+            for (int i=0; i<nx; ++i) {
+                for (int j=0; j<ny; ++j) {
+                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*16, (cast(uint)ch[i][ny-1-j]/16)*16, 16, 16);
+                    SDL_Rect to_position = SDL_Rect(i*16, j*16, 16, 16);
+                    /* Blit the char onto the screen */
+                    SDL_RenderCopy(renderer, texture, &from_position, &to_position);
                 }
             }
+            // show it
+            SDL_RenderPresent(renderer);
         }
-        t.flush();
-
-        for (int i=0; i<nx; ++i) {
-            for (int j=0; j<ny; ++j) {
-                old_ch[i][j] = ch[i][j];
-                old_fg[i][j] = fg[i][j];
-                old_bg[i][j] = bg[i][j];
+    } else {
+        void refresh(ref Terminal t) {
+            // layer sub-window data
+            foreach (w; windows) {
+                for (int j=0; j<w.ny; ++j) {
+                    for (int i=0; i<w.nx; ++i) {
+                        ch[i+w.x][j+w.y] = w.ch[i][j];
+                        fg[i+w.x][j+w.y] = w.fg[i][j];
+                        bg[i+w.x][j+w.y] = w.bg[i][j];
+                    }
+                }
+            }
+            // mark (changed) cells
+            for (int i=0; i<nx; ++i)
+                for (int j=0; j<ny; ++j)
+                    dirty[i][j] = (ch[i][j]!=old_ch[i][j]) || (fg[i][j]!=old_fg[i][j]) || (bg[i][j]!=old_bg[i][j]);
+            // update marked cells
+            for (int i=0; i<nx; ++i) {
+                for (int j=0; j<ny; ++j) {
+                    if (dirty[i][j]) {
+                        t.moveTo(i, ny-1-j);
+                        t.color(fg[i][j], bg[i][j]);
+                        t.write(ch[i][j]);
+                    }
+                }
+            }
+            t.flush();
+            // update saved status
+            for (int i=0; i<nx; ++i) {
+                for (int j=0; j<ny; ++j) {
+                    old_ch[i][j] = ch[i][j];
+                    old_fg[i][j] = fg[i][j];
+                    old_bg[i][j] = bg[i][j];
+                }
             }
         }
     }
