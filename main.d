@@ -357,6 +357,10 @@ public:
     static if (use_sdl) {
         immutable int WINDOW_WIDTH  = 800;
         immutable int WINDOW_HEIGHT = 600;
+        string spritefile = "curses_800x600.bmp";
+        //string spritefile = "curses_square_16x16.bmp";
+        int char_width, char_height;
+
         SDL_Texture *texture;
         int texture_w, texture_h;
 
@@ -391,8 +395,15 @@ public:
         static if (use_sdl) {
             if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
                 throw new Throwable("Unable to create SDL window");
-            if ((texture = LoadSprite("curses_square_16x16.bmp", renderer, texture_w, texture_h)) is null)
+
+            if ((texture = LoadSprite(spritefile, renderer, texture_w, texture_h)) is null)
                 throw new Throwable("Unable to load texture");
+
+            uint format;
+            int access;
+            SDL_QueryTexture(texture, &format, &access, &char_width, &char_height);
+            char_width /= 16;
+            char_height /= 16;
         } else {
             terminal = Terminal(ConsoleOutputType.cellular);
         }
@@ -462,7 +473,10 @@ public:
         foreach (m; monsters)
             if (m.z.l == p.z.l)
                 display[m.z.x][m.z.y] = ui_cell(cast(char)m.self.get("Symbol").i, Color.red|Bright, Color.black);
-        display[p.z.x][p.z.y] = ui_cell('@', Color.white|Bright, Color.black);
+        static if (use_sdl)
+            display[p.z.x][p.z.y] = ui_cell('\x01', Color.white|Bright, Color.black);
+        else
+            display[p.z.x][p.z.y] = ui_cell('@', Color.white|Bright, Color.black);
     }
 
     bool attempt_action(entity e, action a, out tick used_ticks) {
@@ -620,7 +634,7 @@ int main(string[] argv)
     world w = global_world = new world(13);
 
     static if (use_sdl) {
-        int[] size = [800/16, 600/16];
+        int[] size = [w.WINDOW_WIDTH/w.char_width, w.WINDOW_HEIGHT/w.char_height];
     } else {
         w.terminal.hideCursor();
         w.terminal.setTitle("Rogue-gamesh");
@@ -753,7 +767,7 @@ int main(string[] argv)
                     w.running_flag = 0;
                     break;
                 case SDL_KEYDOWN:
-                    writefln("%s %s='%s'", event.key, event.key.keysym.sym, cast(char)event.key.keysym.sym);
+                    //writefln("%s %s='%s'", event.key, event.key.keysym.sym, cast(char)event.key.keysym.sym);
                     switch (event.key.keysym.sym) {
                         case 'q': w.running_flag = 0; break;
                         default:
@@ -795,7 +809,7 @@ int main(string[] argv)
         wm.refresh(w.terminal);
     }
 
-    if (use_sdl) {
+    static if (use_sdl) {
         SDL_Event event;
         while (SDL_WaitEvent(&event))
             if (event.type == SDL_QUIT || event.type == SDL_KEYDOWN)

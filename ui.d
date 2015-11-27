@@ -11,9 +11,9 @@ static if (use_sdl) {
     //import derelict.sdl2.ttf;
     //import derelict.sdl2.net;
     enum Color {
-        black, red, blue, yellow, green, white
+        black=0x000000, red=0x7F0000, blue=0x00007F, yellow=0x7F7F00, green=0x007F00, white=0x7F7F7F
     };
-    immutable int Bright = 0x08;
+    immutable int Bright = 0x808080;
 } else {
     import terminal;
 }
@@ -133,16 +133,39 @@ public:
                 }
             }
             // update
-            SDL_SetRenderDrawColor(renderer, 0x8B, 0x7D, 0x7B, 0xFF);
+            //SDL_SetRenderDrawColor(renderer, 0x8B, 0x7D, 0x7B, 0xFF);
+            SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
             SDL_RenderClear(renderer);
+            uint t_format;
+            int t_access, t_w, t_h;
+            SDL_QueryTexture(texture, &t_format, &t_access, &t_w, &t_h);
+            int chw = t_w/16;
+            int chh = t_h/16;
             for (int i=0; i<nx; ++i) {
                 for (int j=0; j<ny; ++j) {
-                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*16, (cast(uint)ch[i][ny-1-j]/16)*16, 16, 16);
-                    SDL_Rect to_position = SDL_Rect(i*16, j*16, 16, 16);
-                    /* Blit the char onto the screen */
+                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
+                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                    SDL_SetRenderDrawColor(renderer,
+                        (bg[i][ny-1-j]&0xFF0000)>>16,
+                        (bg[i][ny-1-j]&0x00FF00)>>8,
+                        (bg[i][ny-1-j]&0x0000FF),
+                        0xFF);
+                    SDL_RenderFillRect(renderer, &to_position);
+                }
+            }
+
+            for (int i=0; i<nx; ++i) {
+                for (int j=0; j<ny; ++j) {
+                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
+                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                    SDL_SetTextureColorMod(texture,
+                        (fg[i][ny-1-j]&0xFF0000)>>16,
+                        (fg[i][ny-1-j]&0x00FF00)>>8,
+                        (fg[i][ny-1-j]&0x0000FF));
                     SDL_RenderCopy(renderer, texture, &from_position, &to_position);
                 }
             }
+            SDL_SetTextureColorMod(texture, 0xFF, 0xFF, 0xFF);
             // show it
             SDL_RenderPresent(renderer);
         }
