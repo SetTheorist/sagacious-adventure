@@ -315,9 +315,9 @@ public:
         terminal = Terminal(ConsoleOutputType.cellular);
 
         int nl = 10;
-        int nr = 3;
-        int nx = 40;
-        int ny = 40;
+        int nr = 2;
+        int nx = 19;
+        int ny = 19;
         d = new dungeon(gen_rng, nl, nr, nx, ny);
 
         player_go = new gameobj()
@@ -502,6 +502,10 @@ version(Windows) {
     extern (C) void _STD_conio(); // properly closes handles
     extern (C) void _STI_conio(); // initializes DM access to conin, conout
 }
+version(Posix) {
+    extern (C) void* setup_ui_state();
+    extern (C) void restore_ui_state(void*);
+}
 
 world global_world = void;
 ConsoleWindow global_console = void;
@@ -512,6 +516,10 @@ int main(string[] argv)
         _STI_conio();
         scope(exit) _STD_conio();
     }
+    version(Posix) {
+        void* old_ui_state = setup_ui_state();
+        scope(exit) restore_ui_state(old_ui_state);
+    }
     world w = global_world = new world(13);
 
     w.terminal.hideCursor();
@@ -519,11 +527,11 @@ int main(string[] argv)
     //auto input = RealTimeConsoleInput(&terminal, ConsoleInputFlags.raw);
     int[] size = w.terminal.getSize();
     WindowManager wm = new WindowManager(size[0], size[1]-1);
-    Window w_map = new Window(0, size[1]-40-2, 0, 40, 40);
+    Window w_map = new Window(0, size[1]-w.d.ny-2, 0, w.d.nx, w.d.ny);
     wm.add(w_map);
     Window w_header = new Window(0, size[1]-2, 0, size[0]-1, 1);
     wm.add(w_header);
-    Window w_player = new Window(0, size[1]-40-2-2, 0, size[0]-1, 2);
+    Window w_player = new Window(0, size[1]-w.d.ny-2-2, 0, size[0]-1, 2);
     wm.add(w_player);
     global_console = new ConsoleWindow(0, 0, 0, size[0]-1, 5);
     wm.add(global_console);
@@ -624,7 +632,8 @@ int main(string[] argv)
             for (int j=0; j<w.d.ny; ++j)
                 w_map.set(i, j, cast(char)w.display[i][j].ch, w.display[i][j].fg, w.display[i][j].bg);
         w_player.set(0, 0,
-                     format("HP:%s/%s %s [x%s y%s l%s]", w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
+                     format("HP:%s/%s %s [x%s y%s l%s]",
+                            w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
                      Color.white, Color.black);
         w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
         wm.refresh(w.terminal);

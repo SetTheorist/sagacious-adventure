@@ -83,10 +83,10 @@ xy[] bresenham(xy start, xy goal) pure nothrow
     immutable int y2 = goal.y;
     immutable int dx = x2 - x1;
     immutable int ix = (dx > 0) - (dx < 0);
-    immutable size_t dx2 = abs(dx) * 2;
+    immutable int dx2 = cast(int)(abs(dx) * 2);
     int dy = y2 - y1;
     immutable int iy = (dy > 0) - (dy < 0);
-    immutable size_t dy2 = abs(dy) * 2;
+    immutable int dy2 = cast(int)(abs(dy) * 2);
 
     path ~= xy(x1,y1);
 

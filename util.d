@@ -60,16 +60,27 @@ version(Windows) {
     extern(C) int kbhit();
     extern(C) int getch();
 }
+version(Posix) {
+    extern(C) int read_char();
+    extern(C) int input_available();
+}
 
 bool keyReady() {
     version(Windows) {
         return kbhit()!=0;
     }
+    version(Posix) {
+        return input_available()!=0;
+    }
+    return true;
 }
 
 int getKey() {
     version(Windows) {
         return getch();
+    }
+    version(Posix) {
+        return read_char();
     }
 }
 

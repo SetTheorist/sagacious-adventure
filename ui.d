@@ -37,25 +37,25 @@ public:
 }
 
 class ConsoleWindow : Window {
-    int end;
+    int xend;
     this(int ix, int iy, int iz, int inx, int iny) {
         super(ix, iy, iz, inx, iny);
-        end = 0;
+        xend = 0;
     }
     void append(string s, int ifg = Color.white, int ibg = Color.black) {
-        if (end + s.length > nx*ny)
-            scroll(end + s.length - nx*ny);
+        if (xend + cast(int)s.length > nx*ny)
+            scroll(xend + cast(int)s.length - nx*ny);
         foreach (c; s) {
-            int tx = (end % nx);
-            int ty = ny-1-(end / nx);
-            ++end;
+            int tx = (xend % nx);
+            int ty = ny-1-(xend / nx);
+            ++xend;
             ch[tx][ty] = c;
             fg[tx][ty] = ifg;
             bg[tx][ty] = ibg;
         }
     }
     void scroll(int n) {
-        for (int i=0; i<end-n; ++i) {
+        for (int i=0; i<xend-n; ++i) {
             int tx = (i % nx);
             int ty = ny-1-(i / nx);
             int fx = ((i+n) % nx);
@@ -64,7 +64,7 @@ class ConsoleWindow : Window {
             fg[tx][ty] = fg[fx][fy];
             bg[tx][ty] = bg[fx][fy];
         }
-        end -= n;
+        xend -= n;
     }
 }
 

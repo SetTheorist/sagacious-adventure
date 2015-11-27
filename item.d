@@ -406,34 +406,6 @@ class ench_property : property {
     }
     override property clone() { return new ench_property(_ench); }
 }
-class inventory_property : property {
-    gameobj[] _items;
-    this(gameobj[] items) {
-        super("inventory");
-        _items = items.dup();
-    }
-    override ref message handle_message(ref message m) {
-        switch (m.id) {
-        case "GetItems":
-            m["Items"].fa.length = _items.length;
-            for (int i=0; i<_items.length; ++i)
-                    m["Items"].fa[i].g = _items[i];
-            break;
-        case "GetItem":
-            m["Item"] = _items[m["Items"].i];
-            break;
-        case "GetNumberOfItems":
-            m["Items"].i = _items.length;
-            break;
-        default: break;
-        }
-        return m;
-    }
-    override property clone() {
-        
-        return new inventory_property(_items);
-    }
-}
 class xp_property : property {
     int _xp;
     int _next;
