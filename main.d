@@ -357,7 +357,7 @@ public:
     tick    ui_clock = tick(0);
 
     static if (use_sdl) {
-        immutable int WINDOW_WIDTH  = 800;
+        immutable int WINDOW_WIDTH  = 1000;
         immutable int WINDOW_HEIGHT = 600;
         string spritefile = "curses_800x600.bmp";
         //string spritefile = "curses_square_16x16.bmp";
@@ -416,13 +416,16 @@ public:
         int ny = 19;
         d = new dungeon(gen_rng, nl, nr, nx, ny);
 
-        gameobj arm = new gameobj()
+        gameobj r_arm = new gameobj()
             .add(new display_property('/', "right arm"), 0)
+            .add(new body_part_property("arm"), 1);
+        gameobj l_arm = new gameobj()
+            .add(new display_property('/', "left arm"), 0)
             .add(new body_part_property("arm"), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
             .add(new inventory_property(), 2)
-            .add(new body_property(8, 8, tick(tick.tps()), [arm]), 10);
+            .add(new body_property(8, 8, tick(tick.tps()), [l_arm, r_arm]), 10);
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
         p.wielded = glaive.clone();
         monsters = [p];
@@ -436,10 +439,11 @@ public:
                 entity m;
                 gameobj m_go;
                 if (gen_rng.uniform(1.0) < 0.50) {
+                    // TODO: random hp/hd
                     m_go = new gameobj()
                         .add(new display_property('o', "orc"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(6, 6, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), null), 10); // TODO: random hp/hd
+                        .add(new body_property(6, 6, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone(), l_arm.clone()]), 10);
                     m = new entity("orc", gen_rng, xyl(x,y,i), 1, new orc_ai(), m_go);
                     actor_queue.push(new entity_actor(m), tick(251+gen_rng.uniform(60*60)));
                 } else  {
@@ -655,6 +659,13 @@ int main(string[] argv)
     global_console = new ConsoleWindow(0, 0, 0, size[0]-1, 5);
     wm.add(global_console);
 
+
+    {
+        message m = new message("Wielding");
+        m["Wielded"] = fist.clone();
+        w.p.self.handle_message(m);
+    }
+
     int target_fps = 60;
     tick target_ticks = tick(tick.tps() / target_fps);
     tick last_tick = tick(0);
@@ -680,17 +691,6 @@ int main(string[] argv)
         w.update_display();
         handle_uievents(w);
 
-        if (false) {
-            xy[] p;
-            p = bresenham(xy(w.p.z.x,w.p.z.y),xy(0,0));
-            foreach (z; p) w.display[z.x][z.y].bg = Color.blue;
-            p = bresenham(xy(w.p.z.x,w.p.z.y),xy(0,w.d.ny-1));
-            foreach (z; p) w.display[z.x][z.y].bg = Color.blue;
-            p = bresenham(xy(w.p.z.x,w.p.z.y),xy(w.d.nx-1,0));
-            foreach (z; p) w.display[z.x][z.y].bg = Color.blue;
-            p = bresenham(xy(w.p.z.x,w.p.z.y),xy(w.d.nx-1,w.d.ny-1));
-            foreach (z; p) w.display[z.x][z.y].bg = Color.blue;
-        }
         {
             foreach (ref qr; w.display)
                 foreach (ref q; qr)
@@ -753,7 +753,8 @@ int main(string[] argv)
                      format("HP:%s/%s %s [x%s y%s l%s]",
                             w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
                      Color.white, Color.black);
-        w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
+        //w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
+        w_player.set(0, 1, format("%s", w.p.self.get("DisplayName").s), Color.white, Color.black);
         static if (use_sdl) {
             wm.refresh(w.window, w.renderer, w.texture);
         } else {

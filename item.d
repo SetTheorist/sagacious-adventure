@@ -64,10 +64,12 @@ class gameobj {
     }
 
     MT handle_message(MT : message)(MT m) {
+        gameobj old_sender = m._sender;
         m._sender = this;
         foreach (p; _properties)
             if ((m = p.handle_message(m)) is null)
                 break;
+        m._sender = old_sender;
         return cast(MT)m;
     }
 }
@@ -255,6 +257,11 @@ class body_property : property {
     }
     override message handle_message(message m) {
         switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = "";
+            foreach (bp; _body_parts)
+                m = bp.handle_message(m);
+            break;
         case "GetHP":
             m["HP"] = _hp;
             break;
@@ -277,6 +284,26 @@ class body_property : property {
             int n = roller("d8").roll(global_world.play_rng);
             _hp += n;
             _hp_max += n;
+        case "Donning":
+            foreach (bp; _body_parts)
+                if ((m = bp.handle_message(m))["DonnedAt"].g !is null)
+                    break;
+            break;
+        case "Doffing":
+            foreach (bp; _body_parts)
+                if ((m = bp.handle_message(m))["DoffedAt"].g !is null)
+                    break;
+            break;
+        case "Wielding":
+            foreach (bp; _body_parts)
+                if ((m = bp.handle_message(m))["WieldedAt"].g !is null)
+                    break;
+            break;
+        case "Unwielding":
+            foreach (bp; _body_parts)
+                if ((m = bp.handle_message(m))["UnwieldedAt"].g !is null)
+                    break;
+            break;
         default: break;
         }
         return m;
@@ -306,25 +333,43 @@ class body_part_property : property {
                 worn = format(" wearing %s", _worn.get("DisplayName").s);
             if (_wielded !is null)
                 wielded = format(" wielding %s", _wielded.get("DisplayName").s);
-            m["DisplayName"]= format("%s (%s)%s%s", m["DisplayName"], _type, (worn is null) ? "" : worn, (wielded is null) ? "" : wielded);
+            m["DisplayName"] = format("%s (%s)%s%s", m["DisplayName"].s, _type,
+                                      ((worn is null) ? "" : worn),
+                                      ((wielded is null) ? "" : wielded));
             break;
         case "Donning":
             // TODO: check if actually wearable...
+            global_console.append(
+                format("You don the %s on your %s.", m["Donned"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                Color.white);
             m["Doffed"] = _worn;
             _worn = m["Donned"].g;
+            m["DonnedAt"] = m._sender;
             break;
         case "Doffing":
+            global_console.append(
+                format("You doff the %s from your %s.", m["Doffed"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                Color.white);
             m["Doffed"] = _worn;
             _worn = null;
+            m["DoffedAt"] = m._sender;
             break;
         case "Wielding":
+            global_console.append(
+                format("You wield the %s with your %s.", m["Wielded"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                Color.white);
             // TODO: check if actually wieldable...
             m["Unwielded"] = _wielded;
             _wielded = m["Wielded"].g;
+            m["WieldedAt"] = m._sender;
             break;
         case "Unwielding":
+            global_console.append(
+                format("You unwield the %s from your %s.", m["Unwielded"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                Color.white);
             m["Unwielded"] = _wielded;
             _wielded = null;
+            m["UnwieldedAt"] = m._sender;
             break;
         default: break;
         }
