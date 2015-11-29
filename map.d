@@ -139,14 +139,14 @@ public:
     }
 };
 
-level!bool make_level_cellular_automata(rng r, int nx, int ny, real frac, int ns=10) {
-    bool[][] grid = new bool[][](nx,ny);
-    bool[][] old_grid = new bool[][](nx,ny);
+level!cell_type make_level_cellular_automata(rng r, int nx, int ny, real frac, int ns=10, cell_type ft=cell_type.floor, cell_type wt=cell_type.wall) {
+    cell_type[][] grid = new cell_type[][](nx,ny);
+    cell_type[][] old_grid = new cell_type[][](nx,ny);
 
     // initialize
     for (int i=0; i<nx; ++i)
         for (int j=0; j<ny; ++j)
-            grid[i][j] = (i==0 || j==0 || i==nx-1 || j==ny-1 || (r.uniform(1.0) < frac));
+            grid[i][j] = (i==0 || j==0 || i==nx-1 || j==ny-1 || (r.uniform(1.0) < frac)) ? wt : ft;
 
     // iterate ca rule
     for (int s=0; s<ns; ++s) {
@@ -154,15 +154,15 @@ level!bool make_level_cellular_automata(rng r, int nx, int ny, real frac, int ns
         for (int i=1; i<nx-1; ++i) {
             for (int j=1; j<ny-1; ++j) {
                 int count =
-                    (old_grid[i+1][j-1]?1:0)+(old_grid[i+1][j  ]?1:0)+(old_grid[i+1][j+1]?1:0)
-                   +(old_grid[i  ][j-1]?1:0)+(old_grid[i  ][j  ]?1:0)+(old_grid[i  ][j+1]?1:0)
-                   +(old_grid[i-1][j-1]?1:0)+(old_grid[i-1][j  ]?1:0)+(old_grid[i-1][j+1]?1:0);
-                grid[i][j] = (count>=5);
+                    (old_grid[i+1][j-1]==wt?1:0)+(old_grid[i+1][j  ]==wt?1:0)+(old_grid[i+1][j+1]==wt?1:0)
+                   +(old_grid[i  ][j-1]==wt?1:0)+(old_grid[i  ][j  ]==wt?1:0)+(old_grid[i  ][j+1]==wt?1:0)
+                   +(old_grid[i-1][j-1]==wt?1:0)+(old_grid[i-1][j  ]==wt?1:0)+(old_grid[i-1][j+1]==wt?1:0);
+                grid[i][j] = (count>=5) ? wt : ft;
             }
         }
     }
 
-    level!bool lev = new level!bool(nx, ny);
+    level!cell_type lev = new level!cell_type(nx, ny);
     for (int i=0; i<nx; ++i)
         for (int j=0; j<ny; ++j)
             lev.grid[i][j] = grid[i][j];
@@ -200,7 +200,8 @@ class dungeon_level {
     level!cell_type cells;
 public:
     this(rng r, int nr, int nx, int ny) {
-        cells = make_level_grid_rooms(r, nx, ny, nr, nr, cell_type.floor, cell_type.wall, cell_type.floor); //cell_type.door_closed);
+        cells = make_level_grid_rooms(r, nx, ny, nr, nr, cell_type.floor, cell_type.wall, cell_type.door_closed);
+        //cells = make_level_cellular_automata(r, nx, ny, 0.25, 2, cell_type.floor, cell_type.wall);
     }
     ref cell_type opIndex(xy z) { return cells.grid[z.x][z.y]; }
     ref cell_type opIndex(int x, int y) { return cells.grid[x][y]; }

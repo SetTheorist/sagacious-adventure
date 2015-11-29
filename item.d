@@ -2,6 +2,7 @@ module item;
 
 import std.algorithm;
 import std.conv;
+import std.stdio;
 import std.string;
 
 import main : global_console, global_world;
@@ -132,6 +133,11 @@ class message {
         _fields[f].zl = zlv;
         return _fields[f];
     }
+    ref field opIndexAssign(field[] fav, string f) {
+        if (f !in _fields) _fields[f] = field();
+        _fields[f].fa = fav;
+        return _fields[f];
+    }
 }
 class property {
     private string _id;
@@ -214,10 +220,10 @@ class wieldable_property : property {
         case "GetSize":
             m["Size"].i = _size;
             break;
-        case "Wielding":
-            break;
-        case "Unwielding":
-            break;
+        //case "Wielding":
+        //    break;
+        //case "Unwielding":
+        //    break;
         default: break;
         }
         return m;
@@ -259,7 +265,8 @@ class body_property : property {
     int       _hp;
     int       _hp_max;
     int       _size;
-    gameobj[] _body_parts;
+    gameobj[] _root_body_parts; // "roots" to body-part "tree/forest": typically just torso
+    gameobj[] _body_parts; // all elements of the body-part "tree"
     tick      _speed;
     this(int hp, int hp_max, int size, tick speed, gameobj[] body_parts) {
         super("body");
@@ -267,7 +274,13 @@ class body_property : property {
         _hp_max = hp_max;
         _size = size;
         _speed = speed;
-        _body_parts = body_parts;
+        _root_body_parts = body_parts.dup();
+        _body_parts = body_parts.dup();
+        message mess = new message("GetAllChildren");
+        foreach (rbp; _root_body_parts)
+            rbp.handle_message(mess);
+        foreach (ch; mess["Children"].fa)
+            _body_parts ~= ch.g;
     }
     override message handle_message(message m) {
         switch (m.id) {
@@ -323,7 +336,7 @@ class body_property : property {
                     break;
             break;
         case "Wielding":
-            string type = "arm";
+            string type = "hand";
             gameobj to_wield = m["Wielded"].g;
             int required = to_wield.get("Size").i;
             gameobj[] potential_parts;
@@ -374,14 +387,20 @@ class body_property : property {
 class body_part_property : property {
     string  _type;
     int     _size;
+    gameobj _parent;
+    gameobj[] _children;
     gameobj _worn;
     gameobj _wielded;
     gameobj _intrinsic_wielded;
     gameobj _intrinsic_worn;
-    this(string type, int size, gameobj intrinsic_worn = null, gameobj intrinsic_wielded = null, gameobj worn = null, gameobj wielded = null) {
+    this(string type, int size, gameobj parent, gameobj[] children,
+        gameobj intrinsic_worn = null, gameobj intrinsic_wielded = null, gameobj worn = null, gameobj wielded = null)
+    {
         super("body_part");
         _type = type;
         _size = size;
+        _parent = parent;
+        _children = children.dup();
         _intrinsic_worn = intrinsic_worn;
         _intrinsic_wielded = intrinsic_wielded;
         _worn = worn;
@@ -402,6 +421,25 @@ class body_part_property : property {
             m["DisplayName"] = format("%s (%s)%s%s", m["DisplayName"].s, _type,
                                       ((worn is null) ? "" : worn),
                                       ((wielded is null) ? "" : wielded));
+            break;
+        case "SetParent":
+            _parent = m["Parent"].g;
+            break;
+        case "GetParent":
+            m["Parent"] = _parent;
+            break;
+        case "GetChildren":
+            foreach (ch; _children) {
+                field f = {g : ch};
+                m["Children"].fa ~= f;
+            }
+            break;
+        case "GetAllChildren":
+            foreach (ch; _children) {
+                field f = {g : ch};
+                m["Children"].fa ~= f;
+                ch.handle_message(m);
+            }
             break;
         case "GetType":
             m["Type"] = _type;
@@ -432,6 +470,7 @@ class body_part_property : property {
             m["DonnedAt"] = m._sender;
             break;
         case "Doffing":
+            if (_worn != m["Doffed"].g) break;
             global_console.append(
                 format("You doff the %s from your %s.", m["Doffed"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
@@ -450,6 +489,7 @@ class body_part_property : property {
             m["WieldedAt"] = m._sender;
             break;
         case "Unwielding":
+            if (_wielded != m["Unwielded"].g) break;
             global_console.append(
                 format("You unwield the %s from your %s.", m["Unwielded"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
@@ -461,7 +501,16 @@ class body_part_property : property {
         }
         return m;
     }
-    override property clone() { return new body_part_property(_type, _size, _intrinsic_worn, _intrinsic_wielded, _worn, _wielded); }
+    override property clone() {
+        gameobj[] children;
+        foreach (ch; _children)
+            children ~= ch.clone();
+        auto ret = new body_part_property(_type, _size, _parent, children,
+            _intrinsic_worn?_intrinsic_worn.clone():null, _intrinsic_wielded?_intrinsic_wielded.clone():null,
+            _worn?_worn.clone():null, _wielded?_wielded.clone():null);
+        // TODO: fixup parents!
+        return ret;
+    }
 }
 class wearable_property : property {
     string _location;
@@ -672,10 +721,10 @@ class inventory_property : property {
     }
     override message handle_message(message m) {
         switch (m.id) {
-        case "GetShortDisplayName":
-            break;
-        case "GetDisplayName":
-            break;
+        //case "GetShortDisplayName":
+        //    break;
+        //case "GetDisplayName":
+        //    break;
         case "GetCapacity":
             m["Capacity"] = _capacity;
             break;

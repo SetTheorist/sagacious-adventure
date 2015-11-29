@@ -211,6 +211,7 @@ struct action {
     xyl         target;
     union {
         ability abil;
+        gameobj item;
     };
 };
 
@@ -224,7 +225,6 @@ public:
     ai      brain;
     ability abilities[];
     bool    is_dead;
-    gameobj  wielded;
     gameobj self;
 
     this(string iname, rng r, xyl iz, int ifaction, ai ibrain, gameobj iself) {
@@ -233,7 +233,6 @@ public:
         faction = ifaction;
         brain = ibrain;
         is_dead = false;
-        wielded = weapons["fist"];
         self = iself;
     }
 };
@@ -283,10 +282,6 @@ public:
             case '<': a = action(action_type.move, e.z + xyl.u ); break;
             case 'w': a = action(action_type.wield); break;
             case 'e': a = action(action_type.unwield); break;
-            case 'x':
-                foreach (p; w.p.self._properties)
-                    global_console.append(format("%s", p));
-                break;
             default: break;
             }
             return a;
@@ -302,6 +297,7 @@ public:
         if (e.z.l != w.p.z.l) {
             return action(action_type.wait);
         } else {
+            // TODO: actually choose attack action (with appropriate weapon...)
             xy[] path = find_path(w, xy(e.z.x,e.z.y), xy(w.p.z.x,w.p.z.y), e.z.l);
             return action(action_type.move, xyl(path[1].x, path[1].y, e.z.l));
         }
@@ -421,27 +417,44 @@ public:
         int ny = d_nx;
         d = new dungeon(gen_rng, nl, nr, nx, ny);
 
-        gameobj torso = new gameobj()
-            .add(new display_property('/', "body"), 0)
-            .add(new body_part_property("body", 0, skin.clone()), 1);
-        gameobj r_arm = new gameobj()
-            .add(new display_property('/', "right arm"), 0)
-            .add(new body_part_property("arm", 2, null, weapons["fist"].clone()), 1);
-        gameobj l_arm = new gameobj()
-            .add(new display_property('/', "left arm"), 0)
-            .add(new body_part_property("arm", 2, null, weapons["fist"].clone()), 1);
         gameobj r_finger = new gameobj()
             .add(new display_property('/', "right finger"), 0)
-            .add(new body_part_property("finger", 0), 1);
+            .add(new body_part_property("finger", 0, null, null), 1);
+        gameobj r_hand = new gameobj()
+            .add(new display_property('/', "right hand"), 0)
+            .add(new body_part_property("hand", 2, null, [r_finger], null, weapons["fist"]), 1);
+        gameobj r_arm = new gameobj()
+            .add(new display_property('/', "right arm"), 0)
+            .add(new body_part_property("arm", 0, null, [r_hand]), 1);
         gameobj l_finger = new gameobj()
             .add(new display_property('/', "left finger"), 0)
-            .add(new body_part_property("finger", 0), 1);
+            .add(new body_part_property("finger", 0, null, null), 1);
+        gameobj l_hand = new gameobj()
+            .add(new display_property('/', "left hand"), 0)
+            .add(new body_part_property("hand", 2, null, [l_finger], null, weapons["fist"]), 1);
+        gameobj l_arm = new gameobj()
+            .add(new display_property('/', "left arm"), 0)
+            .add(new body_part_property("arm", 0, null, [l_hand]), 1);
+        gameobj r_foot = new gameobj()
+            .add(new display_property('/', "right foot"), 0)
+            .add(new body_part_property("foot", 0, null, null), 1);
+        gameobj r_leg = new gameobj()
+            .add(new display_property('/', "right leg"), 0)
+            .add(new body_part_property("leg", 0, null, [r_foot]), 1);
+        gameobj l_foot = new gameobj()
+            .add(new display_property('/', "left foot"), 0)
+            .add(new body_part_property("hand", 0, null, null), 1);
+        gameobj l_leg = new gameobj()
+            .add(new display_property('/', "left leg"), 0)
+            .add(new body_part_property("leg", 0, null, [l_foot]), 1);
+        gameobj torso = new gameobj()
+            .add(new display_property('/', "torso"), 0)
+            .add(new body_part_property("torso", 0, null, [r_arm, l_arm, r_leg, l_leg, /*head*/], skin.clone()), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
             .add(new inventory_property(10), 2)
-            .add(new body_property(8, 8, 2, tick(tick.tps()), [torso, r_finger, l_finger, r_arm, l_arm]), 10);
+            .add(new body_property(8, 8, 2, tick(tick.tps()), [torso.clone()]), 10);
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
-        p.wielded = weapons["glaive"].clone();
         monsters = [p];
         actor_queue.push(new entity_actor(p), tick(1));
         {
@@ -449,11 +462,6 @@ public:
             m = new message("Wielding");
             m["Entity"] = p.self;
             m["Wielded"] = weapons["glaive"].clone();
-            p.self.handle_message(m);
-
-            m = new message("Wielding");
-            m["Entity"] = p.self;
-            m["Wielded"] = weapons["fist"].clone();
             p.self.handle_message(m);
 
             m = new message("Donning");
@@ -478,14 +486,14 @@ public:
                     m_go = new gameobj()
                         .add(new display_property('o', "orc"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone(), l_arm.clone()]), 10);
+                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone()]), 10);
                     m = new entity("orc", gen_rng, xyl(x,y,i), 1, new orc_ai(), m_go);
                     actor_queue.push(new entity_actor(m), tick(251+gen_rng.uniform(60*60)));
                 } else  {
                     m_go = new gameobj()
                         .add(new display_property('m', "mold"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+3*tick.tps()), null), 10); // TODO: random hp/hd
+                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+3*tick.tps()), []), 10); // TODO: random hp/hd
                     m = new entity("mold", gen_rng, xyl(x,y,i), 2, new mold_ai(), m_go);
                     m.abilities ~= new mold_ability(tick(3*tick.tps()));
                     actor_queue.push(new entity_actor(m), tick(500+gen_rng.uniform(60*60)));
@@ -549,13 +557,29 @@ public:
             // change move to attack if target is occupied square
             foreach (m; monsters) {
                 if (m.z == a.target) {
-                    if (m.faction == e.faction)
+                    if (m.faction == e.faction) {
                         goto case action_type.wait;
-                    else
+                    } else {
+                        foreach (p; e.self._properties) {
+                            if (body_property b = cast(body_property)p) {
+                                foreach (bp; b._body_parts) {
+                                    gameobj g = bp.handle_message(new message("GetWielded"))["Wielded"].g;
+                                    if (g !is null) {
+                                        a.item = g;
+                                        goto found_wielded;
+                                    }
+                                }
+                            }
+                        }
+                        found_wielded:
                         goto case action_type.attack_melee;
+                    }
                 }
             }
-            if (d[a.target] != cell_type.wall && !(e.z.l<a.target.l && d[a.target]!=cell_type.stairs_up) && !(e.z.l>a.target.l && d[a.target]!=cell_type.stairs_down)) {
+            if (d[a.target] != cell_type.wall
+                && !(e.z.l<a.target.l && d[a.target]!=cell_type.stairs_up)
+                && !(e.z.l>a.target.l && d[a.target]!=cell_type.stairs_down))
+            {
                 if (abs(e.z.x-a.target.x)+abs(e.z.y-a.target.y)==2) // cost for diagonal move
                     used_ticks += (used_ticks*408)/985; // approx(sqrt(2)-1)
                 e.z = a.target;
@@ -563,10 +587,16 @@ public:
             } else {
                 goto case action_type.wait;
             }
+            break;
         case action_type.attack_melee:
             foreach (m; monsters) {
                 if (m.z == a.target) {
-                    int dam = e.wielded.handle_message(new message("ComputeMeleeDamage"))["MeleeDamage"].i;
+                    gameobj wielded = a.item;
+                    if (wielded is null) {
+                        global_console.append(format("WARNING: null wielded in %s", a), Color.red, Color.yellow);
+                        break;
+                    }
+                    int dam = wielded.handle_message(new message("ComputeMeleeDamage"))["MeleeDamage"].i;
                     message mess2 = new message("TakeDamage");
                     mess2["Damage"] = dam;
                     m.self.handle_message(mess2);
@@ -579,6 +609,7 @@ public:
                         global_console.append(format("The %s hits you for %d damage.", e.name, dam), Color.red);
                     }
                     if (m.self.get("HP").i <= 0) {
+                        // TODO: handle this via messages appropriately...
                         if (m == p) {
                             global_console.append("You die!", Color.red|Bright, Color.yellow);
                             running_flag = false;
@@ -591,8 +622,8 @@ public:
                             }
                             {
                                 message xpmess = new message("AddXP");
-                                xpmess["XP"] = m.self.get("HPMax").i/2;
-                                p.wielded.handle_message(xpmess);
+                                xpmess["XP"] = 1+m.self.get("HPMax").i/10;
+                                wielded.handle_message(xpmess);
                             }
                             m.is_dead = true;
                             m.z = xyl(-1,-1,-1); // TODO: ugly hack
@@ -855,7 +886,7 @@ int main(string[] argv)
                      format("HP:%s/%s %s [x%s y%s l%s]",
                             w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
                      Color.white, Color.black);
-        w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
+        //w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
 
         {
             field[] bps = w.p.self.get("BodyParts").fa;
