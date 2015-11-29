@@ -20,25 +20,25 @@ static if (use_sdl) {
 
 class Window {
 private:
-    int x, y;
-    int nx, ny;
+    int _x, _y;
+    int _nx, _ny;
     char ch[][];
     int fg[][];
     int bg[][];
 public:
     int z;
     this(int ix, int iy, int iz, int inx, int iny) {
-        x = ix;
-        y = iy;
+        _x = ix;
+        _y = iy;
         z = iz;
-        nx = inx;
-        ny = iny;
-        ch = new char[][](nx, ny);
-        fg = new int[][](nx, ny);
-        bg = new int[][](nx, ny);
+        _nx = inx;
+        _ny = iny;
+        ch = new char[][](_nx, _ny);
+        fg = new int[][](_nx, _ny);
+        bg = new int[][](_nx, _ny);
     }
     void set(int ix, int iy, char ich, int ifg, int ibg) {
-        if (ix>=0 && ix<nx && iy>=0 && iy<ny) {
+        if (ix>=0 && ix<_nx && iy>=0 && iy<_ny) {
             ch[ix][iy] = ich;
             fg[ix][iy] = ifg;
             bg[ix][iy] = ibg;
@@ -47,6 +47,12 @@ public:
     void set(int ix, int iy, string s, int ifg, int ibg) {
         for (int i=0; i<s.length; ++i)
             set(ix+i, iy, s[i], ifg, ibg);
+    }
+    @property {
+        int nx() const pure nothrow @nogc { return _nx; }
+        int ny() const pure nothrow @nogc { return _ny; }
+        int x() const pure nothrow @nogc { return _x; }
+        int y() const pure nothrow @nogc { return _y; }
     }
 }
 
@@ -57,11 +63,11 @@ class ConsoleWindow : Window {
         xend = 0;
     }
     void append(string s, int ifg = Color.white, int ibg = Color.black) {
-        if (xend + cast(int)s.length > nx*ny)
-            scroll(xend + cast(int)s.length - nx*ny);
+        if (xend + cast(int)s.length > _nx*_ny)
+            scroll(xend + cast(int)s.length - _nx*_ny);
         foreach (c; s) {
-            int tx = (xend % nx);
-            int ty = ny-1-(xend / nx);
+            int tx = (xend % _nx);
+            int ty = _ny-1-(xend / _nx);
             ++xend;
             ch[tx][ty] = c;
             fg[tx][ty] = ifg;
@@ -70,10 +76,10 @@ class ConsoleWindow : Window {
     }
     void scroll(int n) {
         for (int i=0; i<xend-n; ++i) {
-            int tx = (i % nx);
-            int ty = ny-1-(i / nx);
-            int fx = ((i+n) % nx);
-            int fy = ny-1-((i+n) / nx);
+            int tx = (i % _nx);
+            int ty = _ny-1-(i / _nx);
+            int fx = ((i+n) % _nx);
+            int fy = _ny-1-((i+n) / _nx);
             ch[tx][ty] = ch[fx][fy];
             fg[tx][ty] = fg[fx][fy];
             bg[tx][ty] = bg[fx][fy];

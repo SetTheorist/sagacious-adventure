@@ -38,7 +38,7 @@ class gameobj {
 
     @property ulong id() const { return _id; }
 
-    private property[] _properties;
+    property[] _properties;
 
     gameobj add(property p, int priority) {
         p._priority = priority;
@@ -72,14 +72,26 @@ class gameobj {
         m._sender = old_sender;
         return cast(MT)m;
     }
+
+    override string toString() const {
+        return format("go#%s", _id);
+    }
 }
 class message {
     private string _id;
     gameobj _sender;
     private field[string] _fields;
     this(string id) { _id = id; }
+    this(string id, field[string] fields) {
+        _id = id;
+        _fields = fields.dup();
+    }
 
     @property string id() const { return _id; }
+
+    override string toString() const {
+        return format("{%s-%s: %s}", _id, _sender, _fields);
+    }
 
     ref field opIndex(string f) {
         if (f !in _fields) _fields[f] = field();
@@ -142,6 +154,8 @@ class display_property : property {
             m["Symbol"] = _symbol;
             break;
         case "GetShortDisplayName":
+            m["ShortDisplayName"] = _name;
+            break;
         case "GetDisplayName":
             m["DisplayName"] = _name;
             break;
@@ -224,18 +238,16 @@ class cursed_property : property {
             break;
         case "Donning":
         case "Wielding":
-            message mess = new message("GetShortDisplayName");
-            m._sender.handle_message(mess);
-            global_console.append(format("The %s appears to be cursed.", mess["ShortDisplayName"]), Color.yellow);
+            global_console.append(format("The %s appears to be cursed.", m._sender.get("ShortDisplayName").s), Color.yellow);
             _known = true;
             break;
         case "Doffing":
         case "Unwielding":
-            message mess = new message("GetShortDisplayName");
-            m._sender.handle_message(mess);
-            global_console.append(format("You cannot remove the cursed %s.", mess["ShortDisplayName"].s), Color.yellow);
+            global_console.append(format("You cannot remove the cursed %s.", m._sender.get("ShortDisplayName").s), Color.yellow);
             _known = true;
-            m = null;
+            message m2 = new message("Cancelled"~m.id);
+            m2._sender = m._sender;
+            m = m2;
             break;
         default: break;
         }
@@ -246,27 +258,38 @@ class cursed_property : property {
 class body_property : property {
     int       _hp;
     int       _hp_max;
+    int       _size;
     gameobj[] _body_parts;
     tick      _speed;
-    this(int hp, int hp_max, tick speed, gameobj[] body_parts) {
+    this(int hp, int hp_max, int size, tick speed, gameobj[] body_parts) {
         super("body");
         _hp = hp;
         _hp_max = hp_max;
+        _size = size;
         _speed = speed;
         _body_parts = body_parts;
     }
     override message handle_message(message m) {
         switch (m.id) {
         case "GetDisplayName":
-            m["DisplayName"] = "";
-            foreach (bp; _body_parts)
-                m = bp.handle_message(m);
+            //m["DisplayName"] = "";
+            //foreach (bp; _body_parts)
+            //    m = bp.handle_message(m);
+            break;
+        case "GetSize":
+            m["Size"] = _size;
             break;
         case "GetHP":
             m["HP"] = _hp;
             break;
         case "GetHPMax":
             m["HPMax"] = _hp_max;
+            break;
+        case "GetBodyParts":
+            foreach (bp; _body_parts) {
+                field f = {g : bp};
+                m["BodyParts"].fa ~= f;
+            }
             break;
         case "GetSpeed":
             m["Speed"] = _speed;
@@ -284,10 +307,15 @@ class body_property : property {
             int n = roller("d8").roll(global_world.play_rng);
             _hp += n;
             _hp_max += n;
+            break;
         case "Donning":
-            foreach (bp; _body_parts)
+            string location = m["Donned"].g.get("Location").s;
+            foreach (bp; _body_parts) {
+                if (bp.get("Type").s != location) continue;
+                if (bp.get("WornActual").g !is null) continue;
                 if ((m = bp.handle_message(m))["DonnedAt"].g !is null)
                     break;
+            }
             break;
         case "Doffing":
             foreach (bp; _body_parts)
@@ -295,9 +323,37 @@ class body_property : property {
                     break;
             break;
         case "Wielding":
-            foreach (bp; _body_parts)
-                if ((m = bp.handle_message(m))["WieldedAt"].g !is null)
-                    break;
+            string type = "arm";
+            gameobj to_wield = m["Wielded"].g;
+            int required = to_wield.get("Size").i;
+            gameobj[] potential_parts;
+            int[] potential_parts_sizes;
+            int available = 0;
+            foreach (bp; _body_parts) {
+                if (bp.get("Type").s == type) {
+                    potential_parts ~= bp;
+                    int size = bp.get("Size").i;
+                    potential_parts_sizes ~= size;
+                    if (bp.get("WieldedActual").g is null)
+                        available += size;
+                }
+            }
+            if (available < required) {
+                global_console.append(format("You are unable to wield the %s.", to_wield.get("ShortDisplayName").s));
+                break;
+            }
+            int able = 0;
+            for (int i=0; i<potential_parts.length && able<required; ++i) {
+                gameobj bp = potential_parts[i];
+                if (bp.get("WieldedActual").g !is null) continue;
+                message mess = new message("Wielding");
+                mess["Wielded"] = to_wield;
+                if ((mess = bp.handle_message(mess))["WieldedAt"].g is null) continue; // TODO: handle this error case appropriately
+                able += potential_parts_sizes[i];
+                //global_console.append(format("You wield the %s in your %s.", to_wield.get("ShortDisplayName").s, bp.get("ShortDisplayName").s));
+            }
+            if (able < required) { // TODO handle this
+            }
             break;
         case "Unwielding":
             foreach (bp; _body_parts)
@@ -312,16 +368,22 @@ class body_property : property {
         gameobj[] body_parts = _body_parts[];
         foreach (ref bp; body_parts)
             bp = bp.clone();
-        return new body_property(_hp, _hp_max, _speed, body_parts);
+        return new body_property(_hp, _hp_max, _size, _speed, body_parts);
     }
 };
 class body_part_property : property {
-    string _type;
+    string  _type;
+    int     _size;
     gameobj _worn;
     gameobj _wielded;
-    this(string type, gameobj worn = null, gameobj wielded = null) {
+    gameobj _intrinsic_wielded;
+    gameobj _intrinsic_worn;
+    this(string type, int size, gameobj intrinsic_worn = null, gameobj intrinsic_wielded = null, gameobj worn = null, gameobj wielded = null) {
         super("body_part");
         _type = type;
+        _size = size;
+        _intrinsic_worn = intrinsic_worn;
+        _intrinsic_wielded = intrinsic_wielded;
         _worn = worn;
         _wielded = wielded;
     }
@@ -331,33 +393,57 @@ class body_part_property : property {
             string worn = null, wielded = null;
             if (_worn !is null)
                 worn = format(" wearing %s", _worn.get("DisplayName").s);
+            else if (_intrinsic_worn !is null)
+                worn = format(" (wearing %s)", _intrinsic_worn.get("DisplayName").s);
             if (_wielded !is null)
                 wielded = format(" wielding %s", _wielded.get("DisplayName").s);
+            else if (_intrinsic_wielded !is null)
+                wielded = format(" (wielding %s)", _intrinsic_wielded.get("DisplayName").s);
             m["DisplayName"] = format("%s (%s)%s%s", m["DisplayName"].s, _type,
                                       ((worn is null) ? "" : worn),
                                       ((wielded is null) ? "" : wielded));
             break;
+        case "GetType":
+            m["Type"] = _type;
+            break;
+        case "GetSize":
+            m["Size"] = _size;
+            break;
+        case "GetWorn":
+            m["Worn"] = _worn ? _worn : _intrinsic_worn ? _intrinsic_worn : null;
+            break;
+        case "GetWornActual":
+            m["WornActual"] = _worn;
+            break;
+        case "GetWielded":
+            m["Wielded"] = _wielded ? _wielded : _intrinsic_wielded ? _intrinsic_wielded : null;
+            break;
+        case "GetWieldedActual":
+            m["WieldedActual"] = _wielded;
+            break;
         case "Donning":
             // TODO: check if actually wearable...
             global_console.append(
-                format("You don the %s on your %s.", m["Donned"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                format("You don the %s on your %s.", m["Donned"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
+            m = m["Donned"].g.handle_message(m);
             m["Doffed"] = _worn;
             _worn = m["Donned"].g;
             m["DonnedAt"] = m._sender;
             break;
         case "Doffing":
             global_console.append(
-                format("You doff the %s from your %s.", m["Doffed"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                format("You doff the %s from your %s.", m["Doffed"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
-            m["Doffed"] = _worn;
+            m = m["Doffed"].g.handle_message(m);
             _worn = null;
             m["DoffedAt"] = m._sender;
             break;
         case "Wielding":
             global_console.append(
-                format("You wield the %s with your %s.", m["Wielded"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                format("You wield the %s with your %s.", m["Wielded"].g.get("ShortDisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
+            m = m["Wielded"].g.handle_message(m);
             // TODO: check if actually wieldable...
             m["Unwielded"] = _wielded;
             _wielded = m["Wielded"].g;
@@ -365,9 +451,9 @@ class body_part_property : property {
             break;
         case "Unwielding":
             global_console.append(
-                format("You unwield the %s from your %s.", m["Unwielded"].g.get("DisplayName").s, m._sender.get("DisplayName").s),
+                format("You unwield the %s from your %s.", m["Unwielded"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
-            m["Unwielded"] = _wielded;
+            m = m["Unwielded"].g.handle_message(m);
             _wielded = null;
             m["UnwieldedAt"] = m._sender;
             break;
@@ -375,7 +461,7 @@ class body_part_property : property {
         }
         return m;
     }
-    override property clone() { return new body_part_property(_type, _worn, _wielded); }
+    override property clone() { return new body_part_property(_type, _size, _intrinsic_worn, _intrinsic_wielded, _worn, _wielded); }
 }
 class wearable_property : property {
     string _location;
@@ -387,23 +473,32 @@ class wearable_property : property {
     }
     override message handle_message(message m) {
         switch (m.id) {
+        case "GetDisplayName":
+            if (_effect) {
+                m["DisplayName"] = format("%s of ", m["DisplayName"].s);
+                m = _effect.handle_message(m);
+            }
+            break;
+        case "GetLocation":
+            m["Location"] = _location;
+            break;
         case "Donning":
             if (_effect) {
                 _effect.handle_message(m);
-                m._sender.add(_effect,10);
+                m["Entity"].g.add(_effect,10);
             }
             break;
         case "Doffing":
             if (_effect) {
                 _effect.handle_message(m);
-                m._sender.remove(_effect);
+                m["Entity"].g.remove(_effect);
             }
             break;
         default: break;
         }
         return m;
     }
-    override property clone() { return new wearable_property(_location, _effect.clone()); }
+    override property clone() { return new wearable_property(_location, _effect ? _effect.clone() : null); }
 }
 class damage_effect_property : property {
     int _bonus;
@@ -413,17 +508,69 @@ class damage_effect_property : property {
     }
     override message handle_message(message m) {
         switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = m["DisplayName"].s ~ format("damage (%+d)", _bonus);
+            break;
         case "ComputeMeleeDamage":
             m["MeleeDamage"] = m["MeleeDamage"].i + _bonus;
             break;
         case "ComputeMissileDamage":
             m["MissileDamage"] = m["MissileDamage"].i + _bonus;
             break;
+        case "Donning":
+            global_console.append("You feel you will do more damage.");
+            break;
+        case "Doffing":
+            global_console.append("You feel you will do less damage.");
+            break;
         default: break;
         }
         return m;
     }
     override property clone() { return new damage_effect_property(_bonus); }
+}
+class speedup_effect_property : property {
+    int _bonus;
+    this(int bonus) {
+        super("speedup_effect");
+        _bonus = bonus;
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = m["DisplayName"].s ~ format("speed (%+d%%)", _bonus);
+            break;
+        case "GetSpeed": // TODO: differentiate different action types...
+            m["Speed"] = m["Speed"].i*(100-_bonus)/100;
+            break;
+        case "Donning":
+            global_console.append("You feel yourself moving faster.");
+            break;
+        case "Doffing":
+            global_console.append("You feel yourself moving slower.");
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new speedup_effect_property(_bonus); }
+}
+class armor_property : property {
+    int _ac;
+    this(int ac) {
+        super("armor");
+        _ac = ac;
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = format("%s (%s)", m["DisplayName"].s, _ac);
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new armor_property(_ac); }
 }
 class weapon_property : property {
     roller _damage;
@@ -454,6 +601,8 @@ class ench_property : property {
     override message handle_message(message m) {
         switch (m.id) {
         case "GetShortDisplayName":
+            if (_ench != 0) m["ShortDisplayName"] = format("%+d %s", _ench, m["ShortDisplayName"].s);
+            break;
         case "GetDisplayName":
             if (_ench != 0) m["DisplayName"] = format("%+d %s", _ench, m["DisplayName"].s);
             break;
@@ -512,21 +661,52 @@ class xp_property : property {
     }
     override property clone() { return new xp_property(_xp, _next, _level); }
 }
-
+// for objs that can hold multiple items
 class inventory_property : property {
+    int _capacity;
     gameobj[] _items;
-    this(gameobj[] items=null) {
+    this(int capacity, gameobj[] items=null) {
         super("inventory");
+        _capacity = capacity;
         _items = items;
     }
     override message handle_message(message m) {
         switch (m.id) {
         case "GetShortDisplayName":
+            break;
         case "GetDisplayName":
+            break;
+        case "GetCapacity":
+            m["Capacity"] = _capacity;
             break;
         default: break;
         }
         return m;
     }
-    override property clone() { return new inventory_property(_items.dup()); }
+    override property clone() { return new inventory_property(_capacity, _items.dup()); }
 }
+// for dungeon locations...
+class tile_property : property {
+    this() {
+        super("tile");
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "MovedOnto":
+            break;
+        case "MovedOff":
+            break;
+        case "MovedAdjacent":
+            break;
+        case "MovedAway":
+            break;
+        case "Activated":
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new tile_property(); }
+}
+
+

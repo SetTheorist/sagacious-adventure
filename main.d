@@ -162,9 +162,17 @@ public:
         if (w.p.z.l == l) {
             for (int i=max(0,x-(count/n)/2); i<=min(w.d.nx-1, x+(count/n)/2); ++i) {
                 for (int j=max(0,y-(count/n)/2); j<=min(w.d.ny-1, y+(count/n)/2); ++j) {
-                    w.display[i][j].bg = (w.ui_rng.uniform(1.0) < 0.75) ? Color.black|Bright : Color.yellow;
-                    if (w.ui_rng.uniform(1.0)<0.25)
-                        w.display[i][j].fg = Color.yellow|Bright;
+                    static if (use_sdl) {
+                        real r_bg = w.ui_rng.uniform(1.0);
+                        w.display[i][j].bg += 
+                              ((cast(uint)(((Color.green&0x0000FF)    )*r_bg)&0xFF)    )
+                            | ((cast(uint)(((Color.green&0x00FF00)>>8 )*r_bg)&0xFF)<<8 )
+                            | ((cast(uint)(((Color.green&0xFF0000)>>16)*r_bg)&0xFF)<<16);
+                    } else {
+                        w.display[i][j].bg = (w.ui_rng.uniform(1.0) < 0.75) ? Color.black|Bright : Color.yellow;
+                        if (w.ui_rng.uniform(1.0)<0.25)
+                            w.display[i][j].fg = Color.yellow|Bright;
+                    }
                 }
             }
         }
@@ -225,7 +233,7 @@ public:
         faction = ifaction;
         brain = ibrain;
         is_dead = false;
-        wielded = fist;
+        wielded = weapons["fist"];
         self = iself;
     }
 };
@@ -275,6 +283,10 @@ public:
             case '<': a = action(action_type.move, e.z + xyl.u ); break;
             case 'w': a = action(action_type.wield); break;
             case 'e': a = action(action_type.unwield); break;
+            case 'x':
+                foreach (p; w.p.self._properties)
+                    global_console.append(format("%s", p));
+                break;
             default: break;
             }
             return a;
@@ -357,18 +369,13 @@ public:
     tick    ui_clock = tick(0);
 
     static if (use_sdl) {
-        immutable int WINDOW_WIDTH  = 1000;
-        immutable int WINDOW_HEIGHT = 600;
-        string spritefile = "curses_800x600.bmp";
-        //string spritefile = "curses_square_16x16.bmp";
+        int WINDOW_WIDTH;
+        int WINDOW_HEIGHT;
         int char_width, char_height;
-
         SDL_Texture *texture;
         int texture_w, texture_h;
-
         SDL_Window *window;
         SDL_Renderer *renderer;
-
     } else {
         Terminal terminal;
     }
@@ -384,7 +391,7 @@ public:
     gameobj player_go;
     gameobj[] monsters_go;
 
-    this(uint seed) {
+    this(uint seed, int d_nx, int d_ny, Display the_display) {
         running_flag = true;
         actor_queue = new PriorityQueue!(actor,tick)();
         ui_queue = new PriorityQueue!(uievent,tick)();
@@ -395,42 +402,70 @@ public:
         ui_rng = new rng(seed);
 
         static if (use_sdl) {
-            if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
-                throw new Throwable("Unable to create SDL window");
-
-            if ((texture = LoadSprite(spritefile, renderer, texture_w, texture_h)) is null)
-                throw new Throwable("Unable to load texture");
-
-            uint format;
-            int access;
-            SDL_QueryTexture(texture, &format, &access, &char_width, &char_height);
-            char_width /= 16;
-            char_height /= 16;
+            WINDOW_WIDTH = the_display.WINDOW_WIDTH;
+            WINDOW_HEIGHT = the_display.WINDOW_HEIGHT;
+            char_width = the_display.char_width;
+            char_height = the_display.char_height;
+            texture = the_display.texture;
+            texture_w = the_display.texture_w;
+            texture_h = the_display.texture_h;
+            window = the_display.window;
+            renderer = the_display.renderer;
         } else {
-            terminal = Terminal(ConsoleOutputType.cellular);
+            terminal = the_display.terminal;
         }
 
         int nl = 10;
-        int nr = 2;
-        int nx = 19;
-        int ny = 19;
+        int nr = 4;
+        int nx = d_nx;
+        int ny = d_nx;
         d = new dungeon(gen_rng, nl, nr, nx, ny);
 
+        gameobj torso = new gameobj()
+            .add(new display_property('/', "body"), 0)
+            .add(new body_part_property("body", 0, skin.clone()), 1);
         gameobj r_arm = new gameobj()
             .add(new display_property('/', "right arm"), 0)
-            .add(new body_part_property("arm"), 1);
+            .add(new body_part_property("arm", 2, null, weapons["fist"].clone()), 1);
         gameobj l_arm = new gameobj()
             .add(new display_property('/', "left arm"), 0)
-            .add(new body_part_property("arm"), 1);
+            .add(new body_part_property("arm", 2, null, weapons["fist"].clone()), 1);
+        gameobj r_finger = new gameobj()
+            .add(new display_property('/', "right finger"), 0)
+            .add(new body_part_property("finger", 0), 1);
+        gameobj l_finger = new gameobj()
+            .add(new display_property('/', "left finger"), 0)
+            .add(new body_part_property("finger", 0), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
-            .add(new inventory_property(), 2)
-            .add(new body_property(8, 8, tick(tick.tps()), [l_arm, r_arm]), 10);
+            .add(new inventory_property(10), 2)
+            .add(new body_property(8, 8, 2, tick(tick.tps()), [torso, r_finger, l_finger, r_arm, l_arm]), 10);
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
-        p.wielded = glaive.clone();
+        p.wielded = weapons["glaive"].clone();
         monsters = [p];
         actor_queue.push(new entity_actor(p), tick(1));
+        {
+            message m;
+            m = new message("Wielding");
+            m["Entity"] = p.self;
+            m["Wielded"] = weapons["glaive"].clone();
+            p.self.handle_message(m);
 
+            m = new message("Wielding");
+            m["Entity"] = p.self;
+            m["Wielded"] = weapons["fist"].clone();
+            p.self.handle_message(m);
+
+            m = new message("Donning");
+            m["Entity"] = p.self;
+            m["Donned"] = ring_of_speed.clone();
+            p.self.handle_message(m);
+
+            m = new message("Donning");
+            m["Entity"] = p.self;
+            m["Donned"] = ring_of_damage.clone();
+            p.self.handle_message(m);
+        }
 
         for (int i=0; i<nl; ++i) {
             for (int j=0; j<2*(i+1); ++j) {
@@ -443,14 +478,14 @@ public:
                     m_go = new gameobj()
                         .add(new display_property('o', "orc"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(6, 6, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone(), l_arm.clone()]), 10);
+                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone(), l_arm.clone()]), 10);
                     m = new entity("orc", gen_rng, xyl(x,y,i), 1, new orc_ai(), m_go);
                     actor_queue.push(new entity_actor(m), tick(251+gen_rng.uniform(60*60)));
                 } else  {
                     m_go = new gameobj()
                         .add(new display_property('m', "mold"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(3, 3, tick(gen_rng.uniform(60*60)+3*tick.tps()), null), 10); // TODO: random hp/hd
+                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+3*tick.tps()), null), 10); // TODO: random hp/hd
                     m = new entity("mold", gen_rng, xyl(x,y,i), 2, new mold_ai(), m_go);
                     m.abilities ~= new mold_ability(tick(3*tick.tps()));
                     actor_queue.push(new entity_actor(m), tick(500+gen_rng.uniform(60*60)));
@@ -478,6 +513,19 @@ public:
                     default:                    ch = '?'; color_fg = Color.red      ; break;
                 }
                 display[i][j] = ui_cell(ch, color_fg, color_bg, display[i][j].visible, display[i][j].seen);
+                static if (use_sdl) {
+                    if (display[i][j].visible) {
+                        display[i][j].fg |= 0x0F0F07;
+                        display[i][j].bg |= 0x0F0F07;
+                    } else if (display[i][j].seen) {
+                        display[i][j].fg &= 0x1F1F1F;
+                        display[i][j].bg &= 0x1F1F1F;
+                    } else {
+                        display[i][j].ch = ' ';
+                        display[i][j].fg = Color.black;
+                        display[i][j].bg = Color.black;
+                    }
+                }
             }
         }
         foreach (m; monsters)
@@ -490,8 +538,10 @@ public:
     }
 
     bool attempt_action(entity e, action a, out tick used_ticks) {
-        //message mess = new message("GetSpeed"); // TODO:
-        used_ticks = tick((base_action_ticks[a.type] * e.self.get("Speed").t.value).trunc);
+        field f = {i:a.type};
+        message mess = new message("GetSpeed", ["ActionType":f]);
+        e.self.handle_message(mess);
+        used_ticks = tick((base_action_ticks[a.type] * mess["Speed"].t.value).trunc);
         switch (a.type) {
         case action_type.wait:
             return true;
@@ -578,27 +628,45 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-gameobj fist, glaive;
-gameobj ring_of_damage;
+gameobj skin;
+gameobj[string] weapons;
+gameobj ring_of_damage, ring_of_speed;
 
 static this() {
-    glaive = new gameobj()
+    weapons["glaive"] = new gameobj()
         .add(new display_property('/', "glaive"), 0)
         .add(new wieldable_property(3, 11, 9), 1)
         .add(new weapon_property(roller("2d6")), 1)
         .add(new ench_property(0), 2)
         .add(new xp_property(), 3);
 
-    fist = new gameobj()
+    weapons["fist"] = new gameobj()
         .add(new display_property('/', "fist"), 0)
-        .add(new wieldable_property(0, 5, 5), 1)
+        .add(new wieldable_property(1, 5, 5), 1)
         .add(new weapon_property(roller("1d3-1")), 1)
         .add(new ench_property(0), 2)
         .add(new xp_property(), 3);
 
+    weapons["dagger"] = new gameobj()
+        .add(new display_property('/', "dagger"), 0)
+        .add(new wieldable_property(1, 5, 5), 1)
+        .add(new weapon_property(roller("1d4")), 1)
+        .add(new ench_property(0), 2)
+        .add(new xp_property(), 3);
+
+    skin = new gameobj()
+        .add(new display_property('[', "skin"), 0)
+        .add(new wearable_property("torso"), 1)
+        .add(new armor_property(0), 1)
+        .add(new ench_property(0), 2);
+
     ring_of_damage = new gameobj()
-        .add(new display_property('"', "ring of damage"), 0)
-        .add(new wearable_property("finger", new damage_effect_property(5)), 1);
+        .add(new display_property('"', "ring"), 0)
+        .add(new wearable_property("finger", new damage_effect_property(35)), 1);
+
+    ring_of_speed = new gameobj()
+        .add(new display_property('"', "ring"), 0)
+        .add(new wearable_property("finger", new speedup_effect_property(50)), 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -614,6 +682,38 @@ version(Posix) {
 
 world global_world = void;
 ConsoleWindow global_console = void;
+
+class Display {
+    static if (use_sdl) {
+        immutable int WINDOW_WIDTH  = 1000;
+        immutable int WINDOW_HEIGHT = 600;
+        string spritefile = "curses_800x600.bmp";
+        //string spritefile = "curses_square_16x16.bmp";
+        int char_width, char_height;
+        SDL_Texture* texture;
+        int texture_w, texture_h;
+        SDL_Window* window;
+        SDL_Renderer* renderer;
+        this() {
+            if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
+                throw new Throwable("Unable to create SDL window");
+
+            if ((texture = LoadSprite(spritefile, renderer, texture_w, texture_h)) is null)
+                throw new Throwable("Unable to load texture");
+
+            uint format;
+            int access;
+            SDL_QueryTexture(texture, &format, &access, &char_width, &char_height);
+            char_width /= 16;
+            char_height /= 16;
+        }
+    } else {
+        Terminal terminal;
+        this () {
+            terminal = new Terminal(ConsoleOutputType.cellular);
+        }
+    }
+}
 
 int main(string[] argv)
 {
@@ -639,32 +739,31 @@ int main(string[] argv)
         }
     }
 
-    world w = global_world = new world(13);
-
+    int d_nx = 29, d_ny = 29;
+    Display display = new Display();
     static if (use_sdl) {
-        int[] size = [w.WINDOW_WIDTH/w.char_width, w.WINDOW_HEIGHT/w.char_height];
+        int[] size = [display.WINDOW_WIDTH/display.char_width, display.WINDOW_HEIGHT/display.char_height];
     } else {
-        w.terminal.hideCursor();
-        w.terminal.setTitle("Rogue-gamesh");
-        int[] size = w.terminal.getSize();
+        display.terminal.hideCursor();
+        display.terminal.setTitle("Rogue-gamesh");
+        int[] size = display.terminal.getSize();
     }
-
     WindowManager wm = new WindowManager(size[0], size[1]-1);
-    Window w_map = new Window(0, size[1]-w.d.ny-2, 0, w.d.nx, w.d.ny);
+    Window w_map = new Window(0, size[1]-d_ny-2, 0, d_nx, d_ny);
     wm.add(w_map);
     Window w_header = new Window(0, size[1]-2, 0, size[0]-1, 1);
     wm.add(w_header);
-    Window w_player = new Window(0, size[1]-w.d.ny-2-2, 0, size[0]-1, 2);
+    Window w_player = new Window(0, size[1]-d_ny-2-2, 0, size[0]-1, 2);
     wm.add(w_player);
     global_console = new ConsoleWindow(0, 0, 0, size[0]-1, 5);
     wm.add(global_console);
+    Window w_body_parts = new Window(size[0]-41, size[1]-22, 0, 40, 20);
+    for (int i=0; i<w_body_parts.nx; ++i)
+        for (int j=0; j<w_body_parts.ny; ++j)
+            w_body_parts.set(i, j, ' ', Color.black, Color.blue);
+    wm.add(w_body_parts);
 
-
-    {
-        message m = new message("Wielding");
-        m["Wielded"] = fist.clone();
-        w.p.self.handle_message(m);
-    }
+    world w = global_world = new world(13, d_nx, d_ny, display);
 
     int target_fps = 60;
     tick target_ticks = tick(tick.tps() / target_fps);
@@ -699,32 +798,34 @@ int main(string[] argv)
             w.display[w.p.z.x][w.p.z.y].seen = true;
             w.display[w.p.z.x][w.p.z.y].visible = true;
 
-            for (int x=max(0,w.p.z.x-10); x<=min(w.d.nx-1,w.p.z.x+10); ++x) {
-                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, max(0,w.p.z.y-10)));
+            int radius = 20;
+
+            for (int x=max(0,w.p.z.x-radius); x<=min(w.d.nx-1,w.p.z.x+radius); ++x) {
+                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, max(0,w.p.z.y-radius)));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.green;
                     w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
-            for (int x=max(0,w.p.z.x-10); x<=min(w.d.nx-1,w.p.z.x+10); ++x) {
-                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, min(w.d.ny-1,w.p.z.y+10)));
+            for (int x=max(0,w.p.z.x-radius); x<=min(w.d.nx-1,w.p.z.x+radius); ++x) {
+                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, min(w.d.ny-1,w.p.z.y+radius)));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.red;
                     w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
-            for (int y=max(0,w.p.z.y-10); y<=min(w.d.ny-1,w.p.z.y+10); ++y) {
-                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(max(0,w.p.z.x-10),y));
+            for (int y=max(0,w.p.z.y-radius); y<=min(w.d.ny-1,w.p.z.y+radius); ++y) {
+                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(max(0,w.p.z.x-radius),y));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.cyan;
                     w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
-            for (int y=max(0,w.p.z.y-10); y<=min(w.d.ny-1,w.p.z.y+10); ++y) {
-                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(min(w.d.nx-1,w.p.z.x+10),y));
+            for (int y=max(0,w.p.z.y-radius); y<=min(w.d.ny-1,w.p.z.y+radius); ++y) {
+                xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(min(w.d.nx-1,w.p.z.x+radius),y));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.magenta;
                     w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
@@ -732,6 +833,7 @@ int main(string[] argv)
                 }
             }
 
+            static if (!use_sdl)
             foreach (ref qr; w.display) {
                 foreach (ref q; qr) {
                     if (!q.seen) {
@@ -753,8 +855,24 @@ int main(string[] argv)
                      format("HP:%s/%s %s [x%s y%s l%s]",
                             w.p.self.get("HP").i, w.p.self.get("HPMax").i, w.player_go.get("DisplayName").s, w.p.z.x, w.p.z.y, w.p.z.l),
                      Color.white, Color.black);
-        //w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
-        w_player.set(0, 1, format("%s", w.p.self.get("DisplayName").s), Color.white, Color.black);
+        w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
+
+        {
+            field[] bps = w.p.self.get("BodyParts").fa;
+            for (int i=0; i<bps.length; ++i) {
+                string bp_name = bps[i].g.get("ShortDisplayName").s;
+                gameobj bp_wielded = bps[i].g.get("Wielded").g;
+                gameobj bp_worn = bps[i].g.get("Worn").g;
+                w_body_parts.set(0, i,
+                    format("%s : %s%s",
+                        bp_name,
+                        ((bp_wielded is null) ? "" : bp_wielded.get("DisplayName").s),
+                        ((bp_worn is null) ? "" : bp_worn.get("DisplayName").s)
+                        ),
+                    Color.white, Color.blue);
+            }
+        }
+
         static if (use_sdl) {
             wm.refresh(w.window, w.renderer, w.texture);
         } else {
