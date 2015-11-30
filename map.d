@@ -181,9 +181,16 @@ level!T make_level_grid_rooms(T)(rng r, int nx, int ny, int nrx, int nry, T floo
             lev.fill_rect(sx, sy, lx, ly, floor);
             if (i>0) lev.grid[sx-1][sy + r.uniform(ly-1)] = door;
             if (j>0) lev.grid[sx + r.uniform(lx-1)][sy-1] = door;
-            if (r.uniform(1.0) < 0.50) {
-                if (i>0) lev.grid[sx-1][sy + r.uniform(ly-1)] = door;
-                if (j>0) lev.grid[sx + r.uniform(lx-1)][sy-1] = door;
+            for (int k=0; k<5; ++k) {
+                if (r.uniform(1.0) < 0.50) {
+                    if (i>0) lev.grid[sx-1][sy + r.uniform(ly-1)] = floor;
+                    if (j>0) lev.grid[sx + r.uniform(lx-1)][sy-1] = floor;
+                }
+            }
+            for (int k=0; k<5; ++k) {
+                if (r.uniform(1.0) < 0.25) {
+                    lev.grid[sx + r.uniform(lx-1)][sy + r.uniform(ly-1)] = wall;
+                }
             }
         }
     }

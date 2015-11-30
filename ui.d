@@ -172,6 +172,23 @@ public:
                 }
             }
             SDL_SetTextureColorMod(texture, 0xFF, 0xFF, 0xFF);
+
+            // HACK TEST
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            import rng : rng;
+            import std.math : abs;
+            static int kkk = 0;
+            rng r = new rng((kkk++)/15);
+            for (int i=0; i<nx; ++i) {
+                for (int j=0; j<ny; ++j) {
+                    //real intensity = (((kkk/20+i)%13)/13.0 + ((kkk/20+j)%17)/17.0)*0.20;
+                    real intensity = r.uniform(1.00,0.90)*(1.0 - abs(nx/2 - i)/(nx/2.0))*(1.0 - abs(ny/2-j)/(ny/2.0))*0.50;
+                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                    SDL_SetRenderDrawColor(renderer, 0x1F, 0x1F, 0xFF, 0xFF&(cast(uint)(intensity*0xFF)));
+                    SDL_RenderFillRect(renderer, &to_position);
+                }
+            }
+
             // show it
             SDL_RenderPresent(renderer);
         }

@@ -183,7 +183,7 @@ public:
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 enum action_type {
-    nop,
+    nop, hesitate,
     wait, move, attack_melee, attack_missile, activate,
     wield, unwield, pickup, drop, use,
     abilify
@@ -192,6 +192,7 @@ Rational!long[action_type] base_action_ticks;
 static this() {
     base_action_ticks = [
         action_type.nop             : rational(0L),
+        action_type.hesitate        : rational(1L,10L),
         action_type.wait            : rational(2L),
         action_type.move            : rational(1L),
         action_type.attack_melee    : rational(1L),
@@ -268,7 +269,7 @@ public:
             xyl oldz = e.z;
             char ch = w.input_queue[0];
             w.input_queue.length = 0;
-            action a = action(action_type.wait);
+            action a = action(action_type.hesitate);
             switch (ch) {
             case 'k': a = action(action_type.move, e.z + xyl.n ); break;
             case 'j': a = action(action_type.move, e.z + xyl.s ); break;
@@ -280,6 +281,7 @@ public:
             case 'm': a = action(action_type.move, e.z + xyl.se); break;
             case '>': a = action(action_type.move, e.z + xyl.d ); break;
             case '<': a = action(action_type.move, e.z + xyl.u ); break;
+            case '.': a = action(action_type.hesitate); break;
             case 'w': a = action(action_type.wield); break;
             case 'e': a = action(action_type.unwield); break;
             default: break;
@@ -443,7 +445,7 @@ public:
             .add(new body_part_property("leg", 0, null, [r_foot]), 1);
         gameobj l_foot = new gameobj()
             .add(new display_property('/', "left foot"), 0)
-            .add(new body_part_property("hand", 0, null, null), 1);
+            .add(new body_part_property("foot", 0, null, null), 1);
         gameobj l_leg = new gameobj()
             .add(new display_property('/', "left leg"), 0)
             .add(new body_part_property("leg", 0, null, [l_foot]), 1);
@@ -464,9 +466,17 @@ public:
             m["Wielded"] = weapons["glaive"].clone();
             p.self.handle_message(m);
 
+            //m = new message("Donning");
+            //m["Entity"] = p.self;
+            //m["Donned"] = ring_of_speed.clone();
+            //p.self.handle_message(m);
             m = new message("Donning");
             m["Entity"] = p.self;
-            m["Donned"] = ring_of_speed.clone();
+            m["Donned"] = boot_of_speed.clone();
+            p.self.handle_message(m);
+            m = new message("Donning");
+            m["Entity"] = p.self;
+            m["Donned"] = boot_of_speed.clone();
             p.self.handle_message(m);
 
             m = new message("Donning");
@@ -551,6 +561,8 @@ public:
         e.self.handle_message(mess);
         used_ticks = tick((base_action_ticks[a.type] * mess["Speed"].t.value).trunc);
         switch (a.type) {
+        case action_type.hesitate:
+            return true;
         case action_type.wait:
             return true;
         case action_type.move:
@@ -558,7 +570,9 @@ public:
             foreach (m; monsters) {
                 if (m.z == a.target) {
                     if (m.faction == e.faction) {
-                        goto case action_type.wait;
+                        a.type = action_type.hesitate;
+                        return attempt_action(e, a, used_ticks);
+                        //goto case action_type.wait;
                     } else {
                         foreach (p; e.self._properties) {
                             if (body_property b = cast(body_property)p) {
@@ -572,7 +586,9 @@ public:
                             }
                         }
                         found_wielded:
-                        goto case action_type.attack_melee;
+                        a.type = action_type.attack_melee;
+                        return attempt_action(e, a, used_ticks);
+                        //goto case action_type.attack_melee;
                     }
                 }
             }
@@ -585,7 +601,9 @@ public:
                 e.z = a.target;
                 return true;
             } else {
-                goto case action_type.wait;
+                a.type = action_type.hesitate;
+                return attempt_action(e, a, used_ticks);
+                //goto case action_type.wait;
             }
             break;
         case action_type.attack_melee:
@@ -661,7 +679,7 @@ public:
 
 gameobj skin;
 gameobj[string] weapons;
-gameobj ring_of_damage, ring_of_speed;
+gameobj ring_of_damage, ring_of_speed, boot_of_speed;
 
 static this() {
     weapons["glaive"] = new gameobj()
@@ -695,9 +713,12 @@ static this() {
         .add(new display_property('"', "ring"), 0)
         .add(new wearable_property("finger", new damage_effect_property(35)), 1);
 
+    boot_of_speed = new gameobj()
+        .add(new display_property('"', "boot"), 0)
+        .add(new wearable_property("foot", new speedup_effect_property(25, action_type.move)), 1);
     ring_of_speed = new gameobj()
         .add(new display_property('"', "ring"), 0)
-        .add(new wearable_property("finger", new speedup_effect_property(50)), 1);
+        .add(new wearable_property("finger", new speedup_effect_property(50, action_type.move)), 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

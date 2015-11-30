@@ -5,7 +5,7 @@ import std.conv;
 import std.stdio;
 import std.string;
 
-import main : global_console, global_world;
+import main : action_type, global_console, global_world;
 import map : xy, xyl;
 import rng;
 import ui : Color, Bright;
@@ -461,6 +461,7 @@ class body_part_property : property {
             break;
         case "Donning":
             // TODO: check if actually wearable...
+            //if (_worn !is null) break;
             global_console.append(
                 format("You don the %s on your %s.", m["Donned"].g.get("DisplayName").s, m._sender.get("ShortDisplayName").s),
                 Color.white);
@@ -580,17 +581,20 @@ class damage_effect_property : property {
 }
 class speedup_effect_property : property {
     int _bonus;
-    this(int bonus) {
+    action_type _type;
+    this(int bonus, action_type type = action_type.nop) {
         super("speedup_effect");
-        _bonus = bonus;
+        _bonus = min(99,bonus);
+        _type = type;
     }
     override message handle_message(message m) {
         switch (m.id) {
         case "GetDisplayName":
-            m["DisplayName"] = m["DisplayName"].s ~ format("speed (%+d%%)", _bonus);
+            m["DisplayName"] = m["DisplayName"].s ~ format("speed (%s%+d%%)", (_type==action_type.nop?"":to!string(_type)), _bonus);
             break;
-        case "GetSpeed": // TODO: differentiate different action types...
-            m["Speed"] = m["Speed"].i*(100-_bonus)/100;
+        case "GetSpeed":
+            if (_type == action_type.nop || _type == m["ActionType"].i)
+                m["Speed"] = m["Speed"].i*(100-_bonus)/100;
             break;
         case "Donning":
             global_console.append("You feel yourself moving faster.");
@@ -602,7 +606,7 @@ class speedup_effect_property : property {
         }
         return m;
     }
-    override property clone() { return new speedup_effect_property(_bonus); }
+    override property clone() { return new speedup_effect_property(_bonus, _type); }
 }
 class armor_property : property {
     int _ac;
@@ -688,9 +692,9 @@ class xp_property : property {
     }
     override message handle_message(message m) {
         switch (m.id) {
-        case "GetDisplayName":
-            m["DisplayName"] = m["DisplayName"].s ~ format(" (XP:%d/%d L:%d)", _xp, _next, _level);
-            break;
+        //case "GetDisplayName":
+        //    m["DisplayName"] = m["DisplayName"].s ~ format(" (XP:%d/%d L:%d)", _xp, _next, _level);
+        //    break;
         case "AddXP":
             _xp += m["XP"].i;
             while (_xp >= _next) {
