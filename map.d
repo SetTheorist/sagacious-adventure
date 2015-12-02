@@ -205,13 +205,17 @@ enum cell_type {
 
 class dungeon_level {
     level!cell_type cells;
+    level!bool      _seen;
 public:
     this(rng r, int nr, int nx, int ny) {
         cells = make_level_grid_rooms(r, nx, ny, nr, nr, cell_type.floor, cell_type.wall, cell_type.door_closed);
         //cells = make_level_cellular_automata(r, nx, ny, 0.25, 2, cell_type.floor, cell_type.wall);
+        _seen = new level!bool(nx, ny);
     }
     ref cell_type opIndex(xy z) { return cells.grid[z.x][z.y]; }
     ref cell_type opIndex(int x, int y) { return cells.grid[x][y]; }
+    ref bool seen(xy z) { return _seen.grid[z.x][z.y]; }
+    ref bool seen(int x, int y) { return _seen.grid[x][y]; }
 };
 
 class dungeon {
@@ -239,6 +243,8 @@ public:
             y = r.uniform(ny-1);
         } while (levels[l][x,y] != cell_type.floor);
     }
-    ref cell_type opIndex(xyl z) { return levels[z.l][z.x,z.y]; }
+    ref cell_type opIndex(xyl z) { return levels[z.l][z.x, z.y]; }
     ref cell_type opIndex(int x, int y, int l) { return levels[l][x,y]; }
+    ref bool seen(xyl z) { return levels[z.l].seen(z.x, z.y); }
+    ref bool seen(int x, int y, int l) { return levels[l].seen(x, y); }
 };

@@ -383,7 +383,7 @@ class body_property : property {
             bp = bp.clone();
         return new body_property(_hp, _hp_max, _size, _speed, body_parts);
     }
-};
+}
 class body_part_property : property {
     string  _type;
     int     _size;
@@ -760,6 +760,34 @@ class tile_property : property {
         return m;
     }
     override property clone() { return new tile_property(); }
+}
+class mana_property : property {
+    int _mana;
+    int _mana_max;
+    this(int mana=0, int mana_max=0) {
+        super("mana");
+        _mana = mana;
+        _mana_max = mana_max;
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetMana":
+            m["Mana"] = _mana;
+            break;
+        case "GetManaMax":
+            m["ManaMax"] = _mana_max;
+            break;
+        case "SetMana":
+            _mana = m["Mana"].i;
+            break;
+        case "SetManaMax":
+            _mana_max = m["ManaMax"].i;
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new mana_property(_mana, _mana_max); }
 }
 
 

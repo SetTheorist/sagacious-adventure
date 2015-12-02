@@ -2,21 +2,15 @@ module ui;
 
 import std.algorithm;
 
-import main : use_sdl;
-
-static if (use_sdl) {
-    import derelict.sdl2.sdl;
-    //import derelict.sdl2.image;
-    //import derelict.sdl2.mixer;
-    //import derelict.sdl2.ttf;
-    //import derelict.sdl2.net;
-    enum Color {
-        black=0x000000, red=0x7F0000, blue=0x00007F, yellow=0x7F7F00, green=0x007F00, white=0x7F7F7F
-    };
-    immutable int Bright = 0x808080;
-} else {
-    import terminal;
+import derelict.sdl2.sdl;
+//import derelict.sdl2.image;
+//import derelict.sdl2.mixer;
+//import derelict.sdl2.ttf;
+//import derelict.sdl2.net;
+enum Color {
+    black=0x000000, red=0x7F0000, blue=0x00007F, yellow=0x7F7F00, green=0x007F00, white=0x7F7F7F
 }
+immutable int Bright = 0x808080;
 
 class Window {
 private:
@@ -126,108 +120,70 @@ public:
             }
         }
     }
-    static if (use_sdl) {
-        void refresh(SDL_Window* window, SDL_Renderer* renderer, SDL_Texture* texture) {
-            // layer sub-window data
-            foreach (w; windows) {
-                for (int j=0; j<w.ny; ++j) {
-                    for (int i=0; i<w.nx; ++i) {
-                        ch[i+w.x][j+w.y] = w.ch[i][j];
-                        fg[i+w.x][j+w.y] = w.fg[i][j];
-                        bg[i+w.x][j+w.y] = w.bg[i][j];
-                    }
-                }
-            }
-            // update
-            //SDL_SetRenderDrawColor(renderer, 0x8B, 0x7D, 0x7B, 0xFF);
-            SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
-            SDL_RenderClear(renderer);
-            uint t_format;
-            int t_access, t_w, t_h;
-            SDL_QueryTexture(texture, &t_format, &t_access, &t_w, &t_h);
-            int chw = t_w/16;
-            int chh = t_h/16;
-            for (int i=0; i<nx; ++i) {
-                for (int j=0; j<ny; ++j) {
-                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
-                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
-                    SDL_SetRenderDrawColor(renderer,
-                        (bg[i][ny-1-j]&0xFF0000)>>16,
-                        (bg[i][ny-1-j]&0x00FF00)>>8,
-                        (bg[i][ny-1-j]&0x0000FF),
-                        0xFF);
-                    SDL_RenderFillRect(renderer, &to_position);
-                }
-            }
-
-            for (int i=0; i<nx; ++i) {
-                for (int j=0; j<ny; ++j) {
-                    SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
-                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
-                    SDL_SetTextureColorMod(texture,
-                        (fg[i][ny-1-j]&0xFF0000)>>16,
-                        (fg[i][ny-1-j]&0x00FF00)>>8,
-                        (fg[i][ny-1-j]&0x0000FF));
-                    SDL_RenderCopy(renderer, texture, &from_position, &to_position);
-                }
-            }
-            SDL_SetTextureColorMod(texture, 0xFF, 0xFF, 0xFF);
-
-            // HACK TEST
-            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-            import rng : rng;
-            import std.math : abs;
-            static int kkk = 0;
-            rng r = new rng((kkk++)/15);
-            for (int i=0; i<nx; ++i) {
-                for (int j=0; j<ny; ++j) {
-                    //real intensity = (((kkk/20+i)%13)/13.0 + ((kkk/20+j)%17)/17.0)*0.20;
-                    real intensity = r.uniform(1.00,0.90)*(1.0 - abs(nx/2 - i)/(nx/2.0))*(1.0 - abs(ny/2-j)/(ny/2.0))*0.50;
-                    SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
-                    SDL_SetRenderDrawColor(renderer, 0x1F, 0x1F, 0xFF, 0xFF&(cast(uint)(intensity*0xFF)));
-                    SDL_RenderFillRect(renderer, &to_position);
-                }
-            }
-
-            // show it
-            SDL_RenderPresent(renderer);
-        }
-    } else {
-        void refresh(ref Terminal t) {
-            // layer sub-window data
-            foreach (w; windows) {
-                for (int j=0; j<w.ny; ++j) {
-                    for (int i=0; i<w.nx; ++i) {
-                        ch[i+w.x][j+w.y] = w.ch[i][j];
-                        fg[i+w.x][j+w.y] = w.fg[i][j];
-                        bg[i+w.x][j+w.y] = w.bg[i][j];
-                    }
-                }
-            }
-            // mark (changed) cells
-            for (int i=0; i<nx; ++i)
-                for (int j=0; j<ny; ++j)
-                    dirty[i][j] = (ch[i][j]!=old_ch[i][j]) || (fg[i][j]!=old_fg[i][j]) || (bg[i][j]!=old_bg[i][j]);
-            // update marked cells
-            for (int i=0; i<nx; ++i) {
-                for (int j=0; j<ny; ++j) {
-                    if (dirty[i][j]) {
-                        t.moveTo(i, ny-1-j);
-                        t.color(fg[i][j], bg[i][j]);
-                        t.write(ch[i][j]);
-                    }
-                }
-            }
-            t.flush();
-            // update saved status
-            for (int i=0; i<nx; ++i) {
-                for (int j=0; j<ny; ++j) {
-                    old_ch[i][j] = ch[i][j];
-                    old_fg[i][j] = fg[i][j];
-                    old_bg[i][j] = bg[i][j];
+    void refresh(SDL_Window* window, SDL_Renderer* renderer, SDL_Texture* texture) {
+        // layer sub-window data
+        foreach (w; windows) {
+            for (int j=0; j<w.ny; ++j) {
+                for (int i=0; i<w.nx; ++i) {
+                    ch[i+w.x][j+w.y] = w.ch[i][j];
+                    fg[i+w.x][j+w.y] = w.fg[i][j];
+                    bg[i+w.x][j+w.y] = w.bg[i][j];
                 }
             }
         }
+        // update
+        //SDL_SetRenderDrawColor(renderer, 0x8B, 0x7D, 0x7B, 0xFF);
+        SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
+        SDL_RenderClear(renderer);
+        uint t_format;
+        int t_access, t_w, t_h;
+        SDL_QueryTexture(texture, &t_format, &t_access, &t_w, &t_h);
+        int chw = t_w/16;
+        int chh = t_h/16;
+        for (int i=0; i<nx; ++i) {
+            for (int j=0; j<ny; ++j) {
+                SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
+                SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                SDL_SetRenderDrawColor(renderer,
+                    (bg[i][ny-1-j]&0xFF0000)>>16,
+                    (bg[i][ny-1-j]&0x00FF00)>>8,
+                    (bg[i][ny-1-j]&0x0000FF),
+                    0xFF);
+                SDL_RenderFillRect(renderer, &to_position);
+            }
+        }
+
+        for (int i=0; i<nx; ++i) {
+            for (int j=0; j<ny; ++j) {
+                SDL_Rect from_position = SDL_Rect((cast(uint)ch[i][ny-1-j]%16)*chw, (cast(uint)ch[i][ny-1-j]/16)*chh, chw, chh);
+                SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                SDL_SetTextureColorMod(texture,
+                    (fg[i][ny-1-j]&0xFF0000)>>16,
+                    (fg[i][ny-1-j]&0x00FF00)>>8,
+                    (fg[i][ny-1-j]&0x0000FF));
+                SDL_RenderCopy(renderer, texture, &from_position, &to_position);
+            }
+        }
+        SDL_SetTextureColorMod(texture, 0xFF, 0xFF, 0xFF);
+
+        // HACK TEST
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        import rng : rng;
+        import std.math : abs;
+        static int kkk = 0;
+        rng r = new rng((kkk++)/15);
+        for (int i=0; i<nx; ++i) {
+            for (int j=0; j<ny; ++j) {
+                //real intensity = (((kkk/20+i)%13)/13.0 + ((kkk/20+j)%17)/17.0)*0.20;
+                real intensity = r.uniform(1.00,0.90)*(1.0 - abs(nx/2 - i)/(nx/2.0))*(1.0 - abs(ny/2-j)/(ny/2.0))*0.50;
+                SDL_Rect to_position = SDL_Rect(i*chw, j*chh, chw, chh);
+                SDL_SetRenderDrawColor(renderer, 0x1F, 0x1F, 0xFF, 0xFF&(cast(uint)(intensity*0xFF)));
+                SDL_RenderFillRect(renderer, &to_position);
+            }
+        }
+
+        // show it
+        SDL_RenderPresent(renderer);
     }
 }
 

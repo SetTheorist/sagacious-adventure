@@ -6,16 +6,11 @@ import std.random;
 import std.stdio;
 import std.string;
 
-immutable bool use_sdl = true;
-static if (use_sdl) {
-    import derelict.sdl2.sdl;
-    //import derelict.sdl2.image;
-    //import derelict.sdl2.mixer;
-    //import derelict.sdl2.ttf;
-    //import derelict.sdl2.net;
-} else {
-    import terminal;
-}
+import derelict.sdl2.sdl;
+//import derelict.sdl2.image;
+//import derelict.sdl2.mixer;
+//import derelict.sdl2.ttf;
+//import derelict.sdl2.net;
 
 import item;
 import map;
@@ -31,7 +26,6 @@ import util;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static if (use_sdl)
 SDL_Texture* LoadSprite(string file, SDL_Renderer *renderer, out int texture_w, out int texture_h)
 {
     SDL_Surface* surf;
@@ -93,6 +87,23 @@ public:
     void go(world w, out tick used_play_ticks, out bool ui_ticked);
 };
 
+class missile_actor : actor {
+private:
+    tick _speed;
+    xy[] _path;
+    int step;
+public:
+    this(tick speed, xy[] path) {
+        _speed = speed;
+        _path = path;
+    }
+    override void go(world w, out tick used_ticks, out bool ui_ticked) {
+        ui_ticked = false;
+        used_ticks = _speed;
+        //w.missile_fire(); // TODO: ...
+    }
+}
+
 class entity_actor : actor {
 public:
     entity e;
@@ -143,7 +154,7 @@ abstract class uievent {
 private:
 public:
     void go(world w, out tick delay_ui_ticks);
-};
+}
 
 class mold_ui : uievent {
 private:
@@ -162,23 +173,57 @@ public:
         if (w.p.z.l == l) {
             for (int i=max(0,x-(count/n)/2); i<=min(w.d.nx-1, x+(count/n)/2); ++i) {
                 for (int j=max(0,y-(count/n)/2); j<=min(w.d.ny-1, y+(count/n)/2); ++j) {
-                    static if (use_sdl) {
-                        real r_bg = w.ui_rng.uniform(1.0);
-                        w.display[i][j].bg += 
-                              ((cast(uint)(((Color.green&0x0000FF)    )*r_bg)&0xFF)    )
-                            | ((cast(uint)(((Color.green&0x00FF00)>>8 )*r_bg)&0xFF)<<8 )
-                            | ((cast(uint)(((Color.green&0xFF0000)>>16)*r_bg)&0xFF)<<16);
-                    } else {
-                        w.display[i][j].bg = (w.ui_rng.uniform(1.0) < 0.75) ? Color.black|Bright : Color.yellow;
-                        if (w.ui_rng.uniform(1.0)<0.25)
-                            w.display[i][j].fg = Color.yellow|Bright;
-                    }
+                    real r_bg = w.ui_rng.uniform(1.0);
+                    w.display[i][j].bg += 
+                          ((cast(uint)(((Color.green&0x0000FF)    )*r_bg)&0xFF)    )
+                        | ((cast(uint)(((Color.green&0x00FF00)>>8 )*r_bg)&0xFF)<<8 )
+                        | ((cast(uint)(((Color.green&0xFF0000)>>16)*r_bg)&0xFF)<<16);
                 }
             }
         }
         --count;
     }
-};
+}
+
+class line_ui : uievent {
+private:
+    xy _from, _to;
+    xy[] _line;
+    Color _col;
+    bool _is_cancelled;
+    int _step;
+public:
+    this(xy ifrom, xy ito, Color icol) {
+        _from = ifrom;
+        _to = ito;
+        _col = icol;
+        _is_cancelled = false;
+        _step = 0;
+        _line = bresenham(_from, _to);
+    }
+    @property xy from() const { return _from; }
+    @property void from(xy ifrom) {
+        _from = ifrom;
+        _line = bresenham(_from, _to);
+    }
+    @property xy to() const { return _to; }
+    @property void to(xy ito) {
+        _to = ito;
+        _line = bresenham(_from, _to);
+    }
+    void cancel() { _is_cancelled = true; }
+    @property bool cancelled() const { return _is_cancelled; }
+    override void go(world w, out tick delay_ui_ticks) {
+        delay_ui_ticks = tick(_is_cancelled ? 0 : 1);
+        for (int i=0; i<_line.length; ++i) {
+            xy p = _line[i%_line.length];
+            w.display[p.x][p.y].bg =
+                (((_step/(1+(30/_line.length)))%_line.length) == (i%_line.length)) ? (_col|0x333333) : _col;
+        }
+        ++_step;
+        //if (_step > 600) cancel();
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -263,30 +308,56 @@ public:
 };
 
 class player_ai : ai {
+    line_ui the_line_ui = null;
 public:
+    // TODO: create "state" objects (embedding line_ui into appropriate state)
     override action think(entity e, world w) {
         if (w.input_queue.length) {
             xyl oldz = e.z;
             char ch = w.input_queue[0];
             w.input_queue.length = 0;
-            action a = action(action_type.hesitate);
-            switch (ch) {
-            case 'k': a = action(action_type.move, e.z + xyl.n ); break;
-            case 'j': a = action(action_type.move, e.z + xyl.s ); break;
-            case 'h': a = action(action_type.move, e.z + xyl.w ); break;
-            case 'l': a = action(action_type.move, e.z + xyl.e ); break;
-            case 'u': a = action(action_type.move, e.z + xyl.nw); break;
-            case 'i': a = action(action_type.move, e.z + xyl.ne); break;
-            case 'n': a = action(action_type.move, e.z + xyl.sw); break;
-            case 'm': a = action(action_type.move, e.z + xyl.se); break;
-            case '>': a = action(action_type.move, e.z + xyl.d ); break;
-            case '<': a = action(action_type.move, e.z + xyl.u ); break;
-            case '.': a = action(action_type.hesitate); break;
-            case 'w': a = action(action_type.wield); break;
-            case 'e': a = action(action_type.unwield); break;
-            default: break;
+            if (!((the_line_ui is null) || the_line_ui.cancelled)) {
+                the_line_ui.from = xy(e.z.x, e.z.y);
+                switch (ch) {
+                case 'k': the_line_ui.to = the_line_ui.to + xy.n ; break;
+                case 'j': the_line_ui.to = the_line_ui.to + xy.s ; break;
+                case 'h': the_line_ui.to = the_line_ui.to + xy.w ; break;
+                case 'l': the_line_ui.to = the_line_ui.to + xy.e ; break;
+                case 'u': the_line_ui.to = the_line_ui.to + xy.nw; break;
+                case 'i': the_line_ui.to = the_line_ui.to + xy.ne; break;
+                case 'n': the_line_ui.to = the_line_ui.to + xy.sw; break;
+                case 'm': the_line_ui.to = the_line_ui.to + xy.se; break;
+                case 'x': the_line_ui.cancel(); break;
+                default: break;
+                }
+                the_line_ui.to = xy(clamp(the_line_ui.to.x, 0, w.d.nx-1), clamp(the_line_ui.to.y, 0, w.d.ny-1));
+                return action(action_type.nop);
+            } else {
+                action a = action(action_type.hesitate);
+                switch (ch) {
+                case 'k': a = action(action_type.move, e.z + xyl.n ); break;
+                case 'j': a = action(action_type.move, e.z + xyl.s ); break;
+                case 'h': a = action(action_type.move, e.z + xyl.w ); break;
+                case 'l': a = action(action_type.move, e.z + xyl.e ); break;
+                case 'u': a = action(action_type.move, e.z + xyl.nw); break;
+                case 'i': a = action(action_type.move, e.z + xyl.ne); break;
+                case 'n': a = action(action_type.move, e.z + xyl.sw); break;
+                case 'm': a = action(action_type.move, e.z + xyl.se); break;
+                case '>': a = action(action_type.move, e.z + xyl.d ); break;
+                case '<': a = action(action_type.move, e.z + xyl.u ); break;
+                case '.': a = action(action_type.hesitate); break;
+                case 'w': a = action(action_type.wield); break;
+                case 'e': a = action(action_type.unwield); break;
+                case 'x':
+                    if ((the_line_ui is null) || the_line_ui.cancelled) {
+                        the_line_ui = new line_ui(xy(e.z.x, e.z.y), xy(1,1), Color.blue);
+                        w.ui_queue.push(the_line_ui, w.ui_clock+1);
+                    }
+                    break;
+                default: break;
+                }
+                return a;
             }
-            return a;
         } else {
             return action(action_type.nop);
         }
@@ -349,7 +420,6 @@ struct ui_cell {
     int     fg;
     int     bg;
     bool    visible;
-    bool    seen;
 };
 
 class world {
@@ -366,17 +436,13 @@ public:
     tick    play_clock = tick(0);
     tick    ui_clock = tick(0);
 
-    static if (use_sdl) {
-        int WINDOW_WIDTH;
-        int WINDOW_HEIGHT;
-        int char_width, char_height;
-        SDL_Texture *texture;
-        int texture_w, texture_h;
-        SDL_Window *window;
-        SDL_Renderer *renderer;
-    } else {
-        Terminal terminal;
-    }
+    int WINDOW_WIDTH;
+    int WINDOW_HEIGHT;
+    int char_width, char_height;
+    SDL_Texture *texture;
+    int texture_w, texture_h;
+    SDL_Window *window;
+    SDL_Renderer *renderer;
     char[] input_queue;
 
     dungeon d;
@@ -399,19 +465,15 @@ public:
         play_rng = new rng(seed);
         ui_rng = new rng(seed);
 
-        static if (use_sdl) {
-            WINDOW_WIDTH = the_display.WINDOW_WIDTH;
-            WINDOW_HEIGHT = the_display.WINDOW_HEIGHT;
-            char_width = the_display.char_width;
-            char_height = the_display.char_height;
-            texture = the_display.texture;
-            texture_w = the_display.texture_w;
-            texture_h = the_display.texture_h;
-            window = the_display.window;
-            renderer = the_display.renderer;
-        } else {
-            terminal = the_display.terminal;
-        }
+        WINDOW_WIDTH = the_display.WINDOW_WIDTH;
+        WINDOW_HEIGHT = the_display.WINDOW_HEIGHT;
+        char_width = the_display.char_width;
+        char_height = the_display.char_height;
+        texture = the_display.texture;
+        texture_w = the_display.texture_w;
+        texture_h = the_display.texture_h;
+        window = the_display.window;
+        renderer = the_display.renderer;
 
         int nl = 10;
         int nr = 4;
@@ -530,29 +592,24 @@ public:
                     case cell_type.stairs_down: ch = '>'; color_fg = Color.white    ; break;
                     default:                    ch = '?'; color_fg = Color.red      ; break;
                 }
-                display[i][j] = ui_cell(ch, color_fg, color_bg, display[i][j].visible, display[i][j].seen);
-                static if (use_sdl) {
-                    if (display[i][j].visible) {
-                        display[i][j].fg |= 0x0F0F07;
-                        display[i][j].bg |= 0x0F0F07;
-                    } else if (display[i][j].seen) {
-                        display[i][j].fg &= 0x1F1F1F;
-                        display[i][j].bg &= 0x1F1F1F;
-                    } else {
-                        display[i][j].ch = ' ';
-                        display[i][j].fg = Color.black;
-                        display[i][j].bg = Color.black;
-                    }
+                display[i][j] = ui_cell(ch, color_fg, color_bg, display[i][j].visible);
+                if (display[i][j].visible) {
+                    display[i][j].fg |= 0x0F0F07;
+                    display[i][j].bg |= 0x0F0F07;
+                } else if (d.seen(i,j,p.z.l)) {
+                    display[i][j].fg &= 0x1F1F1F;
+                    display[i][j].bg &= 0x1F1F1F;
+                } else {
+                    display[i][j].ch = ' ';
+                    display[i][j].fg = Color.black;
+                    display[i][j].bg = Color.black;
                 }
             }
         }
         foreach (m; monsters)
-            if (m.z.l == p.z.l)
+            if ((m.z.l == p.z.l) && display[m.z.x][m.z.y].visible)
                 display[m.z.x][m.z.y] = ui_cell(cast(char)m.self.get("Symbol").i, Color.red|Bright, Color.black);
-        static if (use_sdl)
-            display[p.z.x][p.z.y] = ui_cell('\x01', Color.white|Bright, Color.black);
-        else
-            display[p.z.x][p.z.y] = ui_cell('@', Color.white|Bright, Color.black);
+        display[p.z.x][p.z.y] = ui_cell('\x01', Color.white|Bright, Color.black);
     }
 
     bool attempt_action(entity e, action a, out tick used_ticks) {
@@ -736,40 +793,33 @@ world global_world = void;
 ConsoleWindow global_console = void;
 
 class Display {
-    static if (use_sdl) {
-        immutable int WINDOW_WIDTH  = 1000;
-        immutable int WINDOW_HEIGHT = 600;
-        string spritefile = "curses_800x600.bmp";
-        //string spritefile = "curses_square_16x16.bmp";
-        int char_width, char_height;
-        SDL_Texture* texture;
-        int texture_w, texture_h;
-        SDL_Window* window;
-        SDL_Renderer* renderer;
-        this() {
-            if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
-                throw new Throwable("Unable to create SDL window");
+    immutable int WINDOW_WIDTH  = 1000;
+    immutable int WINDOW_HEIGHT = 600;
+    string spritefile = "curses_800x600.bmp";
+    //string spritefile = "curses_square_16x16.bmp";
+    int char_width, char_height;
+    SDL_Texture* texture;
+    int texture_w, texture_h;
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    this() {
+        if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer) < 0)
+            throw new Throwable("Unable to create SDL window");
 
-            if ((texture = LoadSprite(spritefile, renderer, texture_w, texture_h)) is null)
-                throw new Throwable("Unable to load texture");
+        if ((texture = LoadSprite(spritefile, renderer, texture_w, texture_h)) is null)
+            throw new Throwable("Unable to load texture");
 
-            uint format;
-            int access;
-            SDL_QueryTexture(texture, &format, &access, &char_width, &char_height);
-            char_width /= 16;
-            char_height /= 16;
-        }
-    } else {
-        Terminal terminal;
-        this () {
-            terminal = new Terminal(ConsoleOutputType.cellular);
-        }
+        uint format;
+        int access;
+        SDL_QueryTexture(texture, &format, &access, &char_width, &char_height);
+        char_width /= 16;
+        char_height /= 16;
     }
 }
 
 int main(string[] argv)
 {
-    static if (use_sdl) {
+    {
         // Load the SDL 2 libraries
         DerelictSDL2.load();
         //DerelictSDL2Image.load();
@@ -780,26 +830,11 @@ int main(string[] argv)
 
 	    /* Enable standard application logging */
         SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO);
-    } else {
-        version(Windows) {
-            _STI_conio();
-            scope(exit) _STD_conio();
-        }
-        version(Posix) {
-            void* old_ui_state = setup_ui_state();
-            scope(exit) restore_ui_state(old_ui_state);
-        }
     }
 
     int d_nx = 29, d_ny = 29;
     Display display = new Display();
-    static if (use_sdl) {
-        int[] size = [display.WINDOW_WIDTH/display.char_width, display.WINDOW_HEIGHT/display.char_height];
-    } else {
-        display.terminal.hideCursor();
-        display.terminal.setTitle("Rogue-gamesh");
-        int[] size = display.terminal.getSize();
-    }
+   int[] size = [display.WINDOW_WIDTH/display.char_width, display.WINDOW_HEIGHT/display.char_height];
     WindowManager wm = new WindowManager(size[0], size[1]-1);
     Window w_map = new Window(0, size[1]-d_ny-2, 0, d_nx, d_ny);
     wm.add(w_map);
@@ -847,7 +882,7 @@ int main(string[] argv)
                 foreach (ref q; qr)
                     q.visible = false;
 
-            w.display[w.p.z.x][w.p.z.y].seen = true;
+            w.d.seen(w.p.z.x, w.p.z.y, w.p.z.l) = true;
             w.display[w.p.z.x][w.p.z.y].visible = true;
 
             int radius = 20;
@@ -856,7 +891,7 @@ int main(string[] argv)
                 xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, max(0,w.p.z.y-radius)));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.green;
-                    w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
+                    w.display[z.x][z.y].visible = w.d.seen(z.x, z.y, w.p.z.l) = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
@@ -864,7 +899,7 @@ int main(string[] argv)
                 xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(x, min(w.d.ny-1,w.p.z.y+radius)));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.red;
-                    w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
+                    w.display[z.x][z.y].visible = w.d.seen(z.x, z.y, w.p.z.l) = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
@@ -872,7 +907,7 @@ int main(string[] argv)
                 xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(max(0,w.p.z.x-radius),y));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.cyan;
-                    w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
+                    w.display[z.x][z.y].visible = w.d.seen(z.x, z.y, w.p.z.l) = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
                 }
             }
@@ -880,22 +915,8 @@ int main(string[] argv)
                 xy[] p = bresenham(xy(w.p.z.x,w.p.z.y), xy(min(w.d.nx-1,w.p.z.x+radius),y));
                 foreach (z; p[1..$]) {
                     //w.display[z.x][z.y].bg = Color.magenta;
-                    w.display[z.x][z.y].visible = w.display[z.x][z.y].seen = true;
+                    w.display[z.x][z.y].visible = w.d.seen(z.x, z.y, w.p.z.l) = true;
                     if (w.d[z.x,z.y,w.p.z.l] != cell_type.floor) break;
-                }
-            }
-
-            static if (!use_sdl)
-            foreach (ref qr; w.display) {
-                foreach (ref q; qr) {
-                    if (!q.seen) {
-                        q.ch = ' ';
-                        q.fg = Color.black;
-                        q.bg = Color.black;
-                    } else if (!q.visible) {
-                        q.fg = Color.black|Bright;
-                        q.bg = Color.black;
-                    }
                 }
             }
         }
@@ -925,15 +946,10 @@ int main(string[] argv)
             }
         }
 
-        static if (use_sdl) {
-            wm.refresh(w.window, w.renderer, w.texture);
-        } else {
-            wm.refresh(w.terminal);
-            w.terminal.flush();
-        }
+        wm.refresh(w.window, w.renderer, w.texture);
         //////// ////////
 
-        static if (use_sdl) {
+        {
             SDL_Event event;
             /* Check for events */
             while (SDL_PollEvent(&event)) {
@@ -962,15 +978,6 @@ int main(string[] argv)
                     break;
                 }
             }
-        } else {
-            if (keyReady()) { 
-                char ch;
-                switch(ch=cast(char)getKey()) {
-                case 'q': w.running_flag = 0; break;
-                case 'c': w.terminal.reset(); w.terminal.clear(); break;
-                default: w.input_queue ~= ch; break;
-                }
-            }
         }
     }
 
@@ -978,19 +985,13 @@ int main(string[] argv)
     w_dead.set(0,0,"YOU DEAD!!!!!", Color.red|Bright, Color.white);
     w_dead.set(0,1,cast(string)w.input_queue, Color.white, Color.red);
     wm.add(w_dead);
-    static if (use_sdl) {
-        wm.refresh(w.window, w.renderer, w.texture);
-    } else {
-        wm.refresh(w.terminal);
-    }
+    wm.refresh(w.window, w.renderer, w.texture);
 
-    static if (use_sdl) {
+    {
         SDL_Event event;
         while (SDL_WaitEvent(&event))
             if (event.type == SDL_QUIT || event.type == SDL_KEYDOWN)
                 break;
-    } else {
-        while (getKey()!=' ') {}
     }
     return 0;
 }
