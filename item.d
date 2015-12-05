@@ -21,6 +21,7 @@ union field {
     real    r;
     gameobj g;
     field[] fa;
+    gameobj[] ga;
     tick    t;
     xy      z;
     xyl     zl;
@@ -138,6 +139,11 @@ class message {
         _fields[f].fa = fav;
         return _fields[f];
     }
+    ref field opIndexAssign(gameobj[] gav, string f) {
+        if (f !in _fields) _fields[f] = field();
+        _fields[f].ga = gav;
+        return _fields[f];
+    }
 }
 class property {
     private string _id;
@@ -188,10 +194,10 @@ class physics_property : property {
     override message handle_message(message m) {
         switch (m.id) {
         case "GetWeight":
-            m["Weight"] = _weight;
+            m["Weight"].r += _weight;
             break;
         case "GetVolume":
-            m["Volume"] = _volume;
+            m["Volume"].r += _volume;
             break;
         case "GetXY":
             m["XY"] = xy(_x,_y);
@@ -291,8 +297,8 @@ class body_property : property {
         message mess = new message("GetAllChildren");
         foreach (rbp; _root_body_parts)
             rbp.handle_message(mess);
-        foreach (ch; mess["Children"].fa)
-            _body_parts ~= ch.g;
+        foreach (ch; mess["Children"].ga)
+            _body_parts ~= ch;
     }
     override message handle_message(message m) {
         switch (m.id) {
@@ -311,10 +317,8 @@ class body_property : property {
             m["HPMax"] = _hp_max;
             break;
         case "GetBodyParts":
-            foreach (bp; _body_parts) {
-                field f = {g : bp};
-                m["BodyParts"].fa ~= f;
-            }
+            foreach (bp; _body_parts)
+                m["BodyParts"].ga ~= bp;
             break;
         case "GetSpeed":
             m["Speed"] = _speed;
@@ -441,15 +445,12 @@ class body_part_property : property {
             m["Parent"] = _parent;
             break;
         case "GetChildren":
-            foreach (ch; _children) {
-                field f = {g : ch};
-                m["Children"].fa ~= f;
-            }
+            foreach (ch; _children)
+                m["Children"].ga ~= ch;
             break;
         case "GetAllChildren":
             foreach (ch; _children) {
-                field f = {g : ch};
-                m["Children"].fa ~= f;
+                m["Children"].ga ~= ch;
                 ch.handle_message(m);
             }
             break;
@@ -743,6 +744,32 @@ class inventory_property : property {
         //    break;
         case "GetCapacity":
             m["Capacity"] = _capacity;
+            break;
+        case "GetWeight":
+            foreach (g; _items)
+                g.handle_message(m);
+            break;
+        case "GetVolume":
+            foreach (g; _items)
+                g.handle_message(m);
+            break;
+        case "GetItems":
+            m["Items"] = _items;
+            break;
+        case "SetItems":
+            _items = m["Items"].ga;
+            break;
+        case "RemoveItem":
+            gameobj it = m["Item"].g;
+            for (int i=0; i<_items.length; ++i)
+                if (_items[i] == it) {
+                    _items.remove(i);
+                    --_items.length;
+                    break;
+                }
+            break;
+        case "AppendItem":
+            _items ~= m["Item"].g;
             break;
         default: break;
         }

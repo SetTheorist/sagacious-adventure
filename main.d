@@ -502,18 +502,30 @@ public:
         gameobj r_foot = new gameobj()
             .add(new display_property('/', "right foot"), 0)
             .add(new body_part_property("foot", 0, null, null), 1);
+        gameobj r_ankle = new gameobj()
+            .add(new display_property('/', "right ankle"), 0)
+            .add(new body_part_property("ankle", 0, null, [r_foot]), 1);
         gameobj r_leg = new gameobj()
             .add(new display_property('/', "right leg"), 0)
-            .add(new body_part_property("leg", 0, null, [r_foot]), 1);
+            .add(new body_part_property("leg", 0, null, [r_ankle]), 1);
         gameobj l_foot = new gameobj()
             .add(new display_property('/', "left foot"), 0)
             .add(new body_part_property("foot", 0, null, null), 1);
+        gameobj l_ankle = new gameobj()
+            .add(new display_property('/', "left ankle"), 0)
+            .add(new body_part_property("ankle", 0, null, [l_foot]), 1);
         gameobj l_leg = new gameobj()
             .add(new display_property('/', "left leg"), 0)
-            .add(new body_part_property("leg", 0, null, [l_foot]), 1);
+            .add(new body_part_property("leg", 0, null, [l_ankle]), 1);
+        gameobj h_head = new gameobj()
+            .add(new display_property('/', "head"), 0)
+            .add(new body_part_property("head", 0, null, null), 1);
+        gameobj h_neck = new gameobj()
+            .add(new display_property('/', "neck"), 0)
+            .add(new body_part_property("neck", 0, null, [h_head]), 1);
         gameobj torso = new gameobj()
             .add(new display_property('/', "torso"), 0)
-            .add(new body_part_property("torso", 0, null, [r_arm, l_arm, r_leg, l_leg, /*head*/], skin.clone()), 1);
+            .add(new body_part_property("torso", 0, null, [r_arm, l_arm, r_leg, l_leg, h_neck], skin.clone()), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
             .add(new inventory_property(10), 2)
@@ -838,6 +850,34 @@ class Display {
     }
 }
 
+void inventory_screen(WindowManager wm) {
+    bool done = false;
+    gameobj[] invent = [weapons["glaive"].clone(), bracer_of_damage.clone(), ring_of_speed.clone(), boot_of_speed.clone()];
+    InventoryWindow iwin = new InventoryWindow(invent, 2, 2, 10, wm.nx-4, wm.ny-4);
+    wm.add(iwin);
+    SDL_Event event;
+    /* Check for events */
+    while (!done && SDL_WaitEvent(&event)) {
+        iwin.update();
+        wm.refresh(global_world.window, global_world.renderer, global_world.texture);
+        switch (event.type) {
+        case SDL_QUIT:
+            done = true;
+            global_world.running_flag = 0;
+            break;
+        case SDL_KEYDOWN:
+            //writefln("%s %s='%s'", event.key, event.key.keysym.sym, cast(char)event.key.keysym.sym);
+            switch (event.key.keysym.sym) {
+            case 'q': goto case SDLK_ESCAPE;
+            case SDLK_ESCAPE: done = true; break;
+            default: iwin.handle_keys([cast(char)event.key.keysym.sym]); break;
+            }
+        default: break;
+        }
+    }
+    wm.remove(iwin);
+}
+
 int main(string[] argv)
 {
     {
@@ -952,11 +992,11 @@ int main(string[] argv)
         //w_player.set(0, 1, format("Wielded: %s", w.p.wielded.get("DisplayName").s), Color.white, Color.black);
 
         {
-            field[] bps = w.p.self.get("BodyParts").fa;
+            gameobj[] bps = w.p.self.get("BodyParts").ga;
             for (int i=0; i<bps.length; ++i) {
-                string bp_name = bps[i].g.get("ShortDisplayName").s;
-                gameobj bp_wielded = bps[i].g.get("Wielded").g;
-                gameobj bp_worn = bps[i].g.get("Worn").g;
+                string bp_name = bps[i].get("ShortDisplayName").s;
+                gameobj bp_wielded = bps[i].get("Wielded").g;
+                gameobj bp_worn = bps[i].get("Worn").g;
                 w_body_parts.set(0, i,
                     format("%s : %s%s",
                         bp_name,
@@ -982,7 +1022,9 @@ int main(string[] argv)
                     //writefln("%s %s='%s'", event.key, event.key.keysym.sym, cast(char)event.key.keysym.sym);
                     switch (event.key.keysym.sym) {
                         case 'q': w.running_flag = 0; break;
+                        case 'i': inventory_screen(wm); break;
                         default:
+                            //stderr.writef("%s", event.key);
                             // HACK
                             if (event.key.keysym.sym >= 32) {
                                 char ch = cast(char)event.key.keysym.sym;

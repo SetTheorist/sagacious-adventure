@@ -1,6 +1,10 @@
 module ui;
 
 import std.algorithm;
+import std.stdio;
+import std.string;
+
+import item;
 
 import derelict.sdl2.sdl;
 //import derelict.sdl2.image;
@@ -50,6 +54,56 @@ public:
     }
 }
 
+class InventoryWindow : Window {
+    gameobj[]   invent;
+    bool[]      selected;
+    int         current;
+    this(gameobj[] iinvent, int ix, int iy, int iz, int inx, int iny) {
+        super(ix, iy, iz, inx, iny);
+        invent = iinvent;
+        selected = new bool[](iinvent.length);
+        current = 0;
+    }
+    void update() {
+        for (int i=0; i<nx; ++i) {
+            for (int j=0; j<ny; ++j) {
+                ch[i][j] = ' ';
+                fg[i][j] = Color.white;
+                bg[i][j] = 0x000F0F0F;
+            }
+        }
+        for (int i=0; i<invent.length; ++i) {
+            string s = invent[i].get("DisplayName").s;
+            set(0, ny-1-i,
+                format("%c(%c) %s", selected[i]?'*':' ', cast(char)('a'+i), s),
+                current==i?0x003F3FFF:Color.white,
+                current==i?Color.black:0x000F0F0F
+                );
+        }
+    }
+    void handle_keys(string s) {
+        foreach (ch; s) {
+            //stderr.writefln("handle_key: %s (current=%d)", ch, current);
+            switch (ch) {
+            case ' ':
+                if (0<=current && current<selected.length)
+                    selected[current] = !selected[current];
+                break;
+            case ',': current=max(0, current-1); break;
+            case '.': current=min(invent.length-1, current+1); break;
+            default: if (ch>='a' && ch <= 'z') current=max(0, min(invent.length-1, ch-'a')); break;
+            }
+        }
+    }
+    gameobj[] get_selected() {
+        gameobj[] ret;
+        for(int i=0; i<invent.length; ++i)
+            if (selected[i])
+                ret ~= invent[i];
+        return ret;
+    }
+}
+
 class ConsoleWindow : Window {
     int xend;
     this(int ix, int iy, int iz, int inx, int iny) {
@@ -85,7 +139,6 @@ class ConsoleWindow : Window {
 class WindowManager {
 private:
     Window[] windows;
-    int nx, ny;
     char ch[][];
     int fg[][];
     int bg[][];
@@ -94,6 +147,7 @@ private:
     int old_bg[][];
     bool dirty[][];
 public:
+    int nx, ny;
     this(int inx, int iny) {
         nx = inx;
         ny = iny;
