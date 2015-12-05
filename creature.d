@@ -1,7 +1,5 @@
 module creature;
 
-import std.stdio;
-
 /*
 Self --> Head^* + Torso
 Torso --> Body + Covering + (Limb*2)^* + (Tail)?

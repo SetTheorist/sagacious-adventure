@@ -230,6 +230,18 @@ class wieldable_property : property {
     }
     override property clone() { return new wieldable_property(_size, _min_str, _min_dex); }
 }
+class readied_property : property {
+    this() {
+        super("readied");
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new readied_property(); }
+}
 class cursed_property : property {
     bool _known;
     this(bool known) {

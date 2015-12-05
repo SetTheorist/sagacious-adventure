@@ -166,6 +166,7 @@ public:
         }
         SDL_SetTextureColorMod(texture, 0xFF, 0xFF, 0xFF);
 
+/+
         // HACK TEST
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         import rng : rng;
@@ -181,6 +182,7 @@ public:
                 SDL_RenderFillRect(renderer, &to_position);
             }
         }
++/
 
         // show it
         SDL_RenderPresent(renderer);

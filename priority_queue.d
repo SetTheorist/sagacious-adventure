@@ -1,5 +1,7 @@
 module priority_queue;
 
+import std.container.array;
+
 class PriorityQueue(T,P) {
 private:
     struct Elem {
@@ -8,9 +10,10 @@ private:
     };
     int     num;
     int     allocated;
-    Elem[]  buffer;
+    Array!Elem  buffer;
 
     void resize(int newalloc) {
+        buffer.reserve(newalloc);
         buffer.length = newalloc;
         allocated = newalloc;
     }
@@ -20,11 +23,33 @@ private:
                 return i;
         return 0;
     }
+    int bubble_down(int n, P priority) {
+        int m;
+        while ((m=n*2)<num) {
+            if ((m+1 < num) && (buffer[m].priority > buffer[m+1].priority))
+                ++m;
+            if (priority <= buffer[m].priority)
+                break;
+            buffer[n] = buffer[m];
+            n = m;
+        }
+        return n;
+    }
+    int bubble_up(int n, P priority) {
+        int m;
+        /* append at end, then up heap */
+        while (((m=n/2) != 0) && (priority < buffer[m].priority)) {
+            buffer[n] = buffer[m];
+            n = m;
+        }
+        return n;
+    }
 public:
     this(int size=4) {
         if (size<4) size = 4;
-        buffer = new Elem[size];
+        buffer.reserve(size);
         allocated = size;
+        buffer.length = size;
         num = 1;
     }
     void purge() {
@@ -37,32 +62,24 @@ public:
         return (find(data) != 0);
     }
     bool change_priority(T data, P priority) {
-        int i = find(data);
-        if (!i) return false;
-        if (buffer[i].priority < priority) {
-            // ...
-        } else if (buffer[i].priority > priority) {
-            // ...
-        } else {
-            // ...
-        }
+        if (!remove(data))
+            return false;
+        push(data, priority);
         return true;
     }
     bool remove(T data) {
         int i = find(data);
         if (!i) return false;
-        // ...
+        --num;
+        int n = bubble_down(i, buffer[num].priority);
+        buffer[n] = buffer[num];
         return true;
     }
     void push(T data, P priority) {
         if (num >= allocated)
             resize(allocated*2);
-        int m, n = num++;
         /* append at end, then up heap */
-        while (((m=n/2) != 0) && (priority < buffer[m].priority)) {
-            buffer[n] = buffer[m];
-            n = m;
-        }
+        int n = bubble_up(num++, priority);
         buffer[n].data = data;
         buffer[n].priority = priority;
     }
@@ -92,24 +109,36 @@ public:
         priority = buffer[1].priority;
         /* pull last item to top, then down heap */
         --num;
-        int n = 1, m;
-        while ((m=n*2)<num) {
-            if ((m+1 < num) && (buffer[m].priority > buffer[m+1].priority))
-                ++m;
-            if (buffer[num].priority <= buffer[m].priority)
-                break;
-            buffer[n] = buffer[m];
-            n = m;
-        }
+        int n = bubble_down(1, buffer[num].priority);
         buffer[n] = buffer[num];
-        //if (num < allocated/2 && num >= 16)
-        //    resize(allocated/2);
         return out_data;
     }
 
-    void combine(ref PriorityQueue!(T,P) pq) {
-        for (int i=pq.num-1; i>=1; --i)
-            push(pq.buffer[i].data, pq.buffer[i].priority);
-        pq.purge();
+    public int opApply(int delegate(ref T) dg) {
+        foreach (e; buffer[1..num])
+            if (int res = dg(e.data))
+                return res;
+        return 0;
     }
-};
+
+    public int opApply(int delegate(const ref T) dg) const {
+        foreach (e; buffer[1..num])
+            if (int res = dg(e.data))
+                return res;
+        return 0;
+    }
+
+    public int opApply(int delegate(ref T, const ref P) dg) {
+        foreach (e; buffer[1..num])
+            if (int res = dg(e.data, e.priority))
+                return res;
+        return 0;
+    }
+
+    public int opApply(int delegate(const ref T, const ref P) dg) const {
+        foreach (e; buffer[1..num])
+            if (int res = dg(e.data, e.priority))
+                return res;
+        return 0;
+    }
+}

@@ -520,30 +520,32 @@ public:
             .add(new body_property(8, 8, 2, tick(tick.tps()), [torso.clone()]), 10);
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
         monsters = [p];
-        actor_queue.push(new entity_actor(p), tick(1));
+        actor_queue.push(new entity_actor(p), tick(play_rng.uniform(int.max/2)%tick.tps()));
         {
             message m;
             m = new message("Wielding");
             m["Entity"] = p.self;
             m["Wielded"] = weapons["glaive"].clone();
             p.self.handle_message(m);
-
+            //
             //m = new message("Donning");
             //m["Entity"] = p.self;
             //m["Donned"] = ring_of_speed.clone();
             //p.self.handle_message(m);
+            //
             m = new message("Donning");
             m["Entity"] = p.self;
             m["Donned"] = boot_of_speed.clone();
             p.self.handle_message(m);
+            //
             m = new message("Donning");
             m["Entity"] = p.self;
             m["Donned"] = boot_of_speed.clone();
             p.self.handle_message(m);
-
+            //
             m = new message("Donning");
             m["Entity"] = p.self;
-            m["Donned"] = ring_of_damage.clone();
+            m["Donned"] = bracer_of_damage.clone();
             p.self.handle_message(m);
         }
 
@@ -558,17 +560,24 @@ public:
                     m_go = new gameobj()
                         .add(new display_property('o', "orc"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+25*tick.tps()/10), [r_arm.clone()]), 10);
+                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+13*tick.tps()/10), [r_arm.clone()]), 10);
                     m = new entity("orc", gen_rng, xyl(x,y,i), 1, new orc_ai(), m_go);
-                    actor_queue.push(new entity_actor(m), tick(251+gen_rng.uniform(60*60)));
+                    actor_queue.push(new entity_actor(m), tick(play_rng.uniform(int.max/2)%tick.tps()));
+                    if (i>2) {
+                        message mess;
+                        mess = new message("Wielding");
+                        mess["Entity"] = m_go;
+                        mess["Wielded"] = weapons["club"].clone();
+                        m_go.handle_message(mess);
+                    }
                 } else  {
                     m_go = new gameobj()
                         .add(new display_property('m', "mold"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+3*tick.tps()), []), 10); // TODO: random hp/hd
+                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+2*tick.tps()), []), 10); // TODO: random hp/hd
                     m = new entity("mold", gen_rng, xyl(x,y,i), 2, new mold_ai(), m_go);
                     m.abilities ~= new mold_ability(tick(3*tick.tps()));
-                    actor_queue.push(new entity_actor(m), tick(500+gen_rng.uniform(60*60)));
+                    actor_queue.push(new entity_actor(m), tick(play_rng.uniform(int.max/2)%tick.tps()));
                 }
                 monsters ~= m;
                 monsters_go ~= m_go;
@@ -584,7 +593,12 @@ public:
                 char ch;
                 int color_fg = Color.white, color_bg = Color.black;
                 switch (d[i,j,p.z.l]) {
-                    case cell_type.floor:       ch = '.'; color_fg = Color.white    ; break;
+                    case cell_type.floor:       ch = '.';
+                        int x = (i*i*13+i*17+j*j*19+j*23+i*j*29)&0x3F;
+                        int y = (x|(x<<8)|(x<<16));
+                        color_fg = (~y & 0x3F) << 1;
+                        color_bg |= x;
+                        break;
                     case cell_type.wall:        ch = '#'; color_bg = Color.yellow   ; break;
                     case cell_type.door_open:   ch = '_'; color_fg = Color.white    ; break;
                     case cell_type.door_closed: ch = '+'; color_fg = Color.white    ; break;
@@ -676,7 +690,7 @@ public:
                     mess2["Damage"] = dam;
                     m.self.handle_message(mess2);
                     // TODO: send ComputeMeleeDamage message to entity_go - it passes it to wielded... etc.
-                    // TODO: meleeattack via messages
+                    // TODO: meleeattack via messages  (currently, e.g. bracer_of_damage has no effect...)
                     // TODO: handle sufferDeath message appropriately
                     if (e == p) {
                         global_console.append(format("You hit the %s for %d damage.", m.name, dam));
@@ -736,13 +750,20 @@ public:
 
 gameobj skin;
 gameobj[string] weapons;
-gameobj ring_of_damage, ring_of_speed, boot_of_speed;
+gameobj bracer_of_damage, ring_of_speed, boot_of_speed;
 
 static this() {
     weapons["glaive"] = new gameobj()
         .add(new display_property('/', "glaive"), 0)
         .add(new wieldable_property(3, 11, 9), 1)
         .add(new weapon_property(roller("2d6")), 1)
+        .add(new ench_property(0), 2)
+        .add(new xp_property(), 3);
+
+    weapons["club"] = new gameobj()
+        .add(new display_property('/', "club"), 0)
+        .add(new wieldable_property(2, 12, 4), 1)
+        .add(new weapon_property(roller("1d6")), 1)
         .add(new ench_property(0), 2)
         .add(new xp_property(), 3);
 
@@ -755,7 +776,7 @@ static this() {
 
     weapons["dagger"] = new gameobj()
         .add(new display_property('/', "dagger"), 0)
-        .add(new wieldable_property(1, 5, 5), 1)
+        .add(new wieldable_property(1, 5, 6), 1)
         .add(new weapon_property(roller("1d4")), 1)
         .add(new ench_property(0), 2)
         .add(new xp_property(), 3);
@@ -766,9 +787,9 @@ static this() {
         .add(new armor_property(0), 1)
         .add(new ench_property(0), 2);
 
-    ring_of_damage = new gameobj()
-        .add(new display_property('"', "ring"), 0)
-        .add(new wearable_property("finger", new damage_effect_property(35)), 1);
+    bracer_of_damage = new gameobj()
+        .add(new display_property('"', "bracer"), 0)
+        .add(new wearable_property("arm", new damage_effect_property(35)), 1);
 
     boot_of_speed = new gameobj()
         .add(new display_property('"', "boot"), 0)
