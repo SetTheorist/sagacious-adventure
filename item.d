@@ -5,7 +5,7 @@ import std.conv;
 import std.stdio;
 import std.string;
 
-import main : action_type, global_console, global_world;
+import main : action_type, ability, global_console, global_world;
 import map : xy, xyl;
 import rng;
 import ui : Color, Bright;
@@ -828,5 +828,27 @@ class mana_property : property {
     }
     override property clone() { return new mana_property(_mana, _mana_max); }
 }
-
+class ability_property : property {
+    ability _ability;
+    this(ability iability) {
+        super("ability");
+        _ability = iability;
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = _ability.display_name();
+            break;
+        case "GetTargetType":
+            m["TargetType"] = _ability.target_type();
+            break;
+        case "Activate":
+            _ability.activate(m);
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new ability_property(_ability); }
+}
 

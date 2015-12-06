@@ -81,6 +81,7 @@ abstract class actor {
 private:
     tick ui_clock = tick(-1);
 public:
+    bool _active = true;
     void set_ui_tick(tick ui_tick) { ui_clock = ui_tick; }
     tick get_ui_tick() { return ui_clock; }
 
@@ -96,11 +97,49 @@ public:
     this(tick speed, xy[] path) {
         _speed = speed;
         _path = path;
+        step = 0;
     }
+    xy loc() const { return _path[step]; }
     override void go(world w, out tick used_ticks, out bool ui_ticked) {
         ui_ticked = false;
         used_ticks = _speed;
-        //w.missile_fire(); // TODO: ...
+        if (step+1 >= _path.length) { _active = false; return; }
+        xy curr = _path[++step];
+        for (int i=0; i<w.monsters.length; ++i) {
+            auto m = w.monsters[i];
+            if (m.z == xyl(curr.x, curr.y, w.p.z.l)) {
+                message mess = new message("TakeDamage");
+                mess["Damage"] = 6;
+                m.self.handle_message(mess);
+                _active = false;
+                global_console.append(format("You hit the %s for %d damage.", m.name, 6));
+                if (m.self.get("HP").i <= 0) {
+                    // TODO: handle this via messages appropriately...
+                    if (m == global_world.p) {
+                        global_console.append("You die!", Color.red|Bright, Color.yellow);
+                        global_world.running_flag = false;
+                    } else {
+                        global_console.append(format("The %s dies.", m.name), Color.green);
+                        {
+                            message xpmess = new message("AddXP");
+                            xpmess["XP"] = m.self.get("HPMax").i;
+                            global_world.player_go.handle_message(xpmess);
+                        }
+                        static if (false) { // XXX
+                            message xpmess = new message("AddXP");
+                            xpmess["XP"] = 1+m.self.get("HPMax").i/10;
+                            wielded.handle_message(xpmess);
+                        }
+                        m.is_dead = true;
+                        m.z = xyl(-1,-1,-1); // TODO: ugly hack
+                    }
+                }
+            }
+        }
+        switch (w.d[curr.x, curr.y, w.p.z.l]) {
+        case cell_type.floor: break;
+        default: _active = false; break;
+        }
     }
 }
 
@@ -115,6 +154,7 @@ public:
         if (e.is_dead) {
             ui_ticked = false;
             used_ticks = tick(tick.tps*3600); // TODO: hack
+            _active = false;
         } else {
             w.attempt_action(e, e.brain.think(e, w), used_ticks);
         }
@@ -132,7 +172,8 @@ void handle_actors(world w) {
         tick used_play_ticks;
         a.go(w, used_play_ticks, ui_ticked);
         a.set_ui_tick(w.ui_clock);
-        w.actor_queue.push(a, start_play_ticks + used_play_ticks);
+        if (a._active)
+            w.actor_queue.push(a, start_play_ticks + used_play_ticks);
         w.play_clock = start_play_ticks;
     }
 }
@@ -201,6 +242,7 @@ public:
         _step = 0;
         _line = bresenham(_from, _to);
     }
+    @property xy[] line() { return _line; }
     @property xy from() const { return _from; }
     @property void from(xy ifrom) {
         _from = ifrom;
@@ -323,11 +365,17 @@ public:
                 case 'j': the_line_ui.to = the_line_ui.to + xy.s ; break;
                 case 'h': the_line_ui.to = the_line_ui.to + xy.w ; break;
                 case 'l': the_line_ui.to = the_line_ui.to + xy.e ; break;
-                case 'u': the_line_ui.to = the_line_ui.to + xy.nw; break;
-                case 'i': the_line_ui.to = the_line_ui.to + xy.ne; break;
-                case 'n': the_line_ui.to = the_line_ui.to + xy.sw; break;
-                case 'm': the_line_ui.to = the_line_ui.to + xy.se; break;
-                case 'x': the_line_ui.cancel(); break;
+                case 'y': the_line_ui.to = the_line_ui.to + xy.nw; break;
+                case 'u': the_line_ui.to = the_line_ui.to + xy.ne; break;
+                case 'b': the_line_ui.to = the_line_ui.to + xy.sw; break;
+                case 'n': the_line_ui.to = the_line_ui.to + xy.se; break;
+                case 'x': 
+                    missile_actor ma = new missile_actor(tick(tick.tps()/60), the_line_ui.line);
+                    global_world.missiles ~= ma;
+                    global_world.actor_queue.push(ma, global_world.play_clock+ma._speed);
+                    the_line_ui.cancel();
+                    return action(action_type.attack_missile);
+                    break;
                 default: break;
                 }
                 the_line_ui.to = xy(clamp(the_line_ui.to.x, 0, w.d.nx-1), clamp(the_line_ui.to.y, 0, w.d.ny-1));
@@ -339,10 +387,10 @@ public:
                 case 'j': a = action(action_type.move, e.z + xyl.s ); break;
                 case 'h': a = action(action_type.move, e.z + xyl.w ); break;
                 case 'l': a = action(action_type.move, e.z + xyl.e ); break;
-                case 'u': a = action(action_type.move, e.z + xyl.nw); break;
-                case 'i': a = action(action_type.move, e.z + xyl.ne); break;
-                case 'n': a = action(action_type.move, e.z + xyl.sw); break;
-                case 'm': a = action(action_type.move, e.z + xyl.se); break;
+                case 'y': a = action(action_type.move, e.z + xyl.nw); break;
+                case 'u': a = action(action_type.move, e.z + xyl.ne); break;
+                case 'b': a = action(action_type.move, e.z + xyl.sw); break;
+                case 'n': a = action(action_type.move, e.z + xyl.se); break;
                 case '>': a = action(action_type.move, e.z + xyl.d ); break;
                 case '<': a = action(action_type.move, e.z + xyl.u ); break;
                 case '.': a = action(action_type.hesitate); break;
@@ -394,6 +442,9 @@ public:
 
 abstract class ability {
     void activate(entity e, world e);
+    void activate(message m) { }
+    string target_type() { return "<error>"; }
+    string display_name(){ return "<error>"; }
 };
 
 class mold_ability : ability { // TODO: turn into gameobj / property
@@ -454,6 +505,8 @@ public:
     entity[] monsters;
     gameobj player_go;
     gameobj[] monsters_go;
+
+    missile_actor[] missiles;
 
     this(uint seed, int d_nx, int d_ny, Display the_display) {
         running_flag = true;
@@ -572,7 +625,7 @@ public:
                     m_go = new gameobj()
                         .add(new display_property('o', "orc"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(6, 6, 2, tick(gen_rng.uniform(60*60)+13*tick.tps()/10), [r_arm.clone()]), 10);
+                        .add(new body_property(6+4*i, 6+4*i, 2, tick(gen_rng.uniform(60*60)+13*tick.tps()/10), [r_arm.clone()]), 10);
                     m = new entity("orc", gen_rng, xyl(x,y,i), 1, new orc_ai(), m_go);
                     actor_queue.push(new entity_actor(m), tick(play_rng.uniform(int.max/2)%tick.tps()));
                     if (i>2) {
@@ -586,7 +639,7 @@ public:
                     m_go = new gameobj()
                         .add(new display_property('m', "mold"), 1)
                         .add(new xp_property(), 1)
-                        .add(new body_property(3, 3, 1, tick(gen_rng.uniform(60*60)+2*tick.tps()), []), 10); // TODO: random hp/hd
+                        .add(new body_property(3+2*i, 3+2*i, 1, tick(gen_rng.uniform(60*60)+2*tick.tps()), []), 10); // TODO: random hp/hd
                     m = new entity("mold", gen_rng, xyl(x,y,i), 2, new mold_ai(), m_go);
                     m.abilities ~= new mold_ability(tick(3*tick.tps()));
                     actor_queue.push(new entity_actor(m), tick(play_rng.uniform(int.max/2)%tick.tps()));
@@ -635,6 +688,21 @@ public:
         foreach (m; monsters)
             if ((m.z.l == p.z.l) && display[m.z.x][m.z.y].visible)
                 display[m.z.x][m.z.y] = ui_cell(cast(char)m.self.get("Symbol").i, Color.red|Bright, Color.black);
+        {
+            int i = 0;
+            while (i<missiles.length) {
+                if (missiles[i]._active) {
+                    xy z = missiles[i].loc;
+                    display[z.x][z.y].ch = '*';
+                    display[z.x][z.y].fg = Color.red;
+                    display[z.x][z.y].bg = Color.green;
+                    ++i;
+                } else {
+                    missiles[i] = missiles[$-1];
+                    --missiles.length;
+                }
+            }
+        }
         display[p.z.x][p.z.y] = ui_cell('\x01', Color.white|Bright, Color.black);
     }
 
