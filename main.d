@@ -143,6 +143,41 @@ public:
     }
 }
 
+abstract class entity_update_actor : actor {
+public:
+    entity  e;
+    tick    speed;
+    this(entity ie, tick ispeed) {
+        e = ie;
+        speed = ispeed;
+    }
+    override void go(world w, out tick used_ticks, out bool ui_ticked) {
+        ui_ticked = false;
+        do_update(w);
+        used_ticks = speed;
+    }
+    void do_update(world w);
+}
+
+class hp_entity_update_actor : entity_update_actor {
+    this(entity ie, tick ispeed) {
+        super(ie, ispeed);
+    }
+    override void do_update(world w) {
+        int hp = e.self.get("HP").i;
+        int max_hp = e.self.get("HPMax").i;
+        if (hp < 0) {
+            _active = false;
+        } else if (hp < max_hp) {
+            if (w.play_rng.uniform(1.0) < 0.10) { // TODO: base on player stats!
+                message m = new message("TakeDamage");
+                m["Damage"] = -1;
+                e.self.handle_message(m);
+            }
+        }
+    }
+}
+
 class entity_actor : actor {
 public:
     entity e;
@@ -215,6 +250,7 @@ public:
             for (int i=max(0,x-(count/n)/2); i<=min(w.d.nx-1, x+(count/n)/2); ++i) {
                 for (int j=max(0,y-(count/n)/2); j<=min(w.d.ny-1, y+(count/n)/2); ++j) {
                     real r_bg = w.ui_rng.uniform(1.0);
+                    w.display[i][j].fg |= 0x000700;
                     w.display[i][j].bg += 
                           ((cast(uint)(((Color.green&0x0000FF)    )*r_bg)&0xFF)    )
                         | ((cast(uint)(((Color.green&0x00FF00)>>8 )*r_bg)&0xFF)<<8 )
@@ -570,6 +606,9 @@ public:
         gameobj l_leg = new gameobj()
             .add(new display_property('/', "left leg"), 0)
             .add(new body_part_property("leg", 0, null, [l_ankle]), 1);
+        gameobj h_waist = new gameobj()
+            .add(new display_property('/', "waist"), 0)
+            .add(new body_part_property("waist", 0, null, [r_leg, l_leg]), 1);
         gameobj h_head = new gameobj()
             .add(new display_property('/', "head"), 0)
             .add(new body_part_property("head", 0, null, null), 1);
@@ -578,7 +617,7 @@ public:
             .add(new body_part_property("neck", 0, null, [h_head]), 1);
         gameobj torso = new gameobj()
             .add(new display_property('/', "torso"), 0)
-            .add(new body_part_property("torso", 0, null, [r_arm, l_arm, r_leg, l_leg, h_neck], skin.clone()), 1);
+            .add(new body_part_property("torso", 0, null, [r_arm, l_arm, h_waist, h_neck], skin.clone()), 1);
         player_go = new gameobj()
             .add(new xp_property(), 1)
             .add(new inventory_property(10), 2)
@@ -586,18 +625,19 @@ public:
         p = new entity("you", play_rng, xyl(1,1,0), 0, new player_ai(), player_go);
         monsters = [p];
         actor_queue.push(new entity_actor(p), tick(play_rng.uniform(int.max/2)%tick.tps()));
+        actor_queue.push(new hp_entity_update_actor(p, tick(tick.tps())), tick(play_rng.uniform(cast(int)tick.tps(),0))); // TODO
         {
             message m;
             m = new message("Wielding");
             m["Entity"] = p.self;
             m["Wielded"] = weapons["glaive"].clone();
             p.self.handle_message(m);
-            //
-            //m = new message("Donning");
-            //m["Entity"] = p.self;
-            //m["Donned"] = ring_of_speed.clone();
-            //p.self.handle_message(m);
-            //
+
+            m = new message("Donning");
+            m["Entity"] = p.self;
+            m["Donned"] = ring_of_protection.clone();
+            p.self.handle_message(m);
+
             m = new message("Donning");
             m["Entity"] = p.self;
             m["Donned"] = boot_of_speed.clone();
@@ -611,6 +651,11 @@ public:
             m = new message("Donning");
             m["Entity"] = p.self;
             m["Donned"] = bracer_of_damage.clone();
+            p.self.handle_message(m);
+            //
+            m = new message("Donning");
+            m["Entity"] = p.self;
+            m["Donned"] = girdle_of_giant_strength.clone();
             p.self.handle_message(m);
         }
 
@@ -830,7 +875,7 @@ public:
 
 gameobj skin;
 gameobj[string] weapons;
-gameobj bracer_of_damage, ring_of_speed, boot_of_speed;
+gameobj bracer_of_damage, ring_of_speed, ring_of_protection, boot_of_speed, girdle_of_giant_strength;
 
 static this() {
     weapons["glaive"] = new gameobj()
@@ -870,6 +915,9 @@ static this() {
     bracer_of_damage = new gameobj()
         .add(new display_property('"', "bracer"), 0)
         .add(new wearable_property("arm", new damage_effect_property(35)), 1);
+    girdle_of_giant_strength = new gameobj()
+        .add(new display_property('"', "girdle"), 0)
+        .add(new wearable_property("waist", new damage_effect_property(35)), 1); // TODO
 
     boot_of_speed = new gameobj()
         .add(new display_property('"', "boot"), 0)
@@ -877,6 +925,10 @@ static this() {
     ring_of_speed = new gameobj()
         .add(new display_property('"', "ring"), 0)
         .add(new wearable_property("finger", new speedup_effect_property(50, action_type.move)), 1);
+
+    ring_of_protection = new gameobj()
+        .add(new display_property('"', "ring"), 0)
+        .add(new wearable_property("finger", new protection_effect_property(2)), 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

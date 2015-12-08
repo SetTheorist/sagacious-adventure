@@ -563,6 +563,26 @@ class wearable_property : property {
     }
     override property clone() { return new wearable_property(_location, _effect ? _effect.clone() : null); }
 }
+class protection_effect_property : property {
+    int _bonus;
+    this(int bonus) {
+        super("protection_effect");
+        _bonus = bonus;
+    }
+    override message handle_message(message m) {
+        switch (m.id) {
+        case "GetDisplayName":
+            m["DisplayName"] = m["DisplayName"].s ~ format("protection (%+d)", _bonus);
+            break;
+        case "TakeDamage": // TODO: fix this - it's too late here!!!!!
+            m["Damage"] = max(0, m["Damage"].i - _bonus);
+            break;
+        default: break;
+        }
+        return m;
+    }
+    override property clone() { return new protection_effect_property(_bonus); }
+}
 class damage_effect_property : property {
     int _bonus;
     this(int bonus) {
